@@ -4,7 +4,9 @@ import type { Block } from './library'
 import type { Card } from './types'
 import SafeMarkdown from './SafeMarkdown.vue'
 
-const props = defineProps<{ blocks: Block[]; selectedId?: string; selectedBlockId?: string; documentName: string }>()
+const props = withDefaults(defineProps<{ blocks: Block[]; selectedId?: string; selectedBlockId?: string; documentName: string; title?: string; rootLabel?: string; commits?: Record<string, string> }>(), {
+  title: '对话地图', rootLabel: '知识点'
+})
 const emit = defineEmits<{ select: [id: string]; read: [blockId: string]; start: [blockId?: string] }>()
 const scroller = ref<HTMLElement>()
 const scale = ref(1)
@@ -170,9 +172,9 @@ watch(() => props.documentName, async () => { focused.value = ''; await zoom(1, 
 </script>
 
 <template>
-  <section class="conversation-canvas" :aria-label="documentName + ' · 对话地图'">
+  <section class="conversation-canvas" :aria-label="documentName + ' · ' + title">
     <header class="canvas-bar">
-      <div class="canvas-location"><h2>对话地图</h2></div>
+      <div class="canvas-location"><h2>{{ title }}</h2></div>
       <div class="canvas-tools">
         <slot name="actions" />
         <div v-if="graph.nodes.length" class="zoom-tools" aria-label="地图缩放">
@@ -203,9 +205,10 @@ watch(() => props.documentName, async () => { focused.value = ''; await zoom(1, 
             <template v-if="node.card">
               <span class="node-question"><SafeMarkdown inline :text="summary(node.card.question) || '未命名提问'" /></span>
               <span class="node-answer"><SafeMarkdown inline :text="node.card.loading ? '正在回答…' : summary(node.card.editedAnswer ?? node.card.answer) || '暂无回答'" /></span>
+              <small v-if="commits?.[node.card.id]" class="node-commit">{{ commits[node.card.id].slice(0, 8) }}</small>
             </template>
             <template v-else>
-              <span class="chapter-label">知识点</span>
+              <span class="chapter-label">{{ rootLabel }}</span>
               <span class="node-question"><SafeMarkdown inline :text="chapterTitle(node.block)" /></span>
               <span class="chapter-read" aria-hidden="true">↗</span><span class="canvas-sr">阅读此节</span>
             </template>
@@ -244,6 +247,7 @@ watch(() => props.documentName, async () => { focused.value = ''; await zoom(1, 
 .node-question,.node-answer { display:-webkit-box; overflow:hidden; overflow-wrap:anywhere; -webkit-box-orient:vertical; -webkit-line-clamp:2; line-height:1.43; }
 .node-question { font-size:13px; font-weight:600; color:#263b2d; }
 .node-answer { color:#5b695e; font-size:12px; font-weight:400; }
+.node-commit { color:#63806a; font:10px/1.2 ui-monospace,monospace; }
 .chapter-node { background:#e9efe5; border-color:#c4d1bf; border-radius:9px; padding-right:22px; }
 .chapter-label { font-size:10px; color:#526b56; }
 .chapter-read { position:absolute; right:8px; top:6px; color:#57735b; font-size:14px; }

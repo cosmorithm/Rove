@@ -5,6 +5,7 @@ import { dirname, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { parseEnv } from 'node:util'
 import { importPdf, pdfScheme, servePdf } from './pdf'
+import { registerCoding } from './coding'
 
 app.setName('Rove')
 
@@ -78,7 +79,7 @@ function createWindow() {
     minWidth: 980,
     minHeight: 680,
     backgroundColor: '#f7f7f5',
-    title: 'Rove · 学习工作台',
+    title: 'Rove · 探索工作台',
     titleBarStyle: 'hiddenInset',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -163,6 +164,7 @@ app.whenReady().then(() => {
       clearTimeout(timeout)
     }
   })
+  registerCoding({ ipcMain, window: () => mainWindow, requireReader, storageDir: libraryDirectory, envFile, appRoot })
   createWindow()
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow() })
 })
