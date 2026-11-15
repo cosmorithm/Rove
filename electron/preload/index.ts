@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import type { CodingBridge, CodeProgress } from '../../src/codingTypes'
+import type { StudyContextBridge } from '../../src/studyContextTypes'
 
 contextBridge.exposeInMainWorld('studyBridge', {
   openPdf: () => ipcRenderer.invoke('pdf:open'),
@@ -17,6 +18,7 @@ const codingBridge: CodingBridge = {
   diff: request => ipcRenderer.invoke('coding:diff', request),
   checkpoint: request => ipcRenderer.invoke('coding:checkpoint', request),
   fork: request => ipcRenderer.invoke('coding:fork', request),
+  trace: request => ipcRenderer.invoke('coding:trace', request),
   run: request => ipcRenderer.invoke('coding:run', request),
   cancel: runId => ipcRenderer.invoke('coding:cancel', runId),
   engine: () => ipcRenderer.invoke('coding:engine'),
@@ -27,3 +29,10 @@ const codingBridge: CodingBridge = {
   }
 }
 contextBridge.exposeInMainWorld('codingBridge', codingBridge)
+
+const studyContextBridge: StudyContextBridge = {
+  save: source => ipcRenderer.invoke('study-context:save', source),
+  get: nodeId => ipcRenderer.invoke('study-context:get', nodeId),
+  prepare: request => ipcRenderer.invoke('study-context:prepare', request)
+}
+contextBridge.exposeInMainWorld('studyContextBridge', studyContextBridge)

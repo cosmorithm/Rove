@@ -1,18 +1,32 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { execFile } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
 import { promisify } from 'node:util'
-import { constants } from 'node:fs'
-import { copyFile, lstat, mkdir, mkdtemp, open, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises'
+import { constants, createWriteStream } from 'node:fs'
+import { pipeline } from 'node:stream/promises'
+import { copyFile, lstat, mkdir, mkdtemp, open, readFile, readdir, realpath, rename, rm, writeFile } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { tmpdir } from 'node:os'
-import type { CodeFile, CodeProject, CodeStatus, CodeWorkspace } from '../../src/codingTypes'
+import type { CodeFile, CodeProject, CodeStatus, CodeWorkspace, CodeTraceInfo, CodeTracePage } from '../../src/codingTypes'
+import { inspectCodeTrace, readTraceFilePage, traceKey, validateTraceId, validateTracePageArgs, type ClosedCodeTrace } from './codingTrace.ts'
 
 interface TurnDetails {
   runId: string; nodeId: string; kind: 'ask' | 'edit'; before: string; prompt: string; context: string;
-  answer: string; outcome: 'completed' | 'failed' | 'cancelled'
+  answer: string; outcome: 'completed' | 'failed' | 'cancelled'; trace?: CodeTraceInfo
 }
 function turnRef(nodeId: string) {
   return 'refs/rove/turns/' + createHash('sha256').update(nodeId).digest('hex')
+}
+function traceRef(nodeId: string) { return 'refs/rove/traces/' + traceKey(nodeId) }
+function traceInfo(value: unknown, nodeId: string): CodeTraceInfo {
+  const info = value as CodeTraceInfo
+  if (!info || info.format !== 'jsonl-v1' || !/^[a-f\d]{40}(?:[a-f\d]{24})?$/.test(info.blob) ||
+      info.nodeId !== nodeId || !Number.isSafeInteger(info.events) || info.events < 0 ||
+      !Number.isSafeInteger(info.bytes) || info.bytes < 0 || !/^[a-f\d]{64}$/.test(info.sha256)) {
+    throw new Error('Git 中的运行记录描述无效。')
+  }
+  validateTraceId(info.runId, '运行编号')
+  validateTraceId(info.nodeId)
+  return info
 }
 
 const exec = promisify(execFile)
@@ -20,7 +34,7 @@ const maxFile = 4 * 1024 * 1024
 const fileHash = (data: Buffer) => createHash('sha256').update(data).digest('hex')
 const failure = (error: unknown) => (error as NodeJS.ErrnoException).code
 
-async function git(cwd: string, args: string[], index?: string, inspectError = false) {
+function gitEnvironment(index?: string, inspectError = false) {
   const env = { ...process.env }
   // Ignore inherited repository overrides; the picked directory is the authority.
   for (const key of Object.keys(env)) if (key.startsWith('GIT_')) delete env[key]
@@ -28,6 +42,10 @@ async function git(cwd: string, args: string[], index?: string, inspectError = f
   env.GIT_OPTIONAL_LOCKS = '0'
   if (inspectError) env.LC_ALL = 'C'
   if (index) env.GIT_INDEX_FILE = index
+  return env
+}
+async function git(cwd: string, args: string[], index?: string, inspectError = false) {
+  const env = gitEnvironment(index, inspectError)
   try {
     const result = await exec('/usr/bin/git', [
       '--no-pager', '--literal-pathspecs', '-c', 'core.hooksPath=/dev/null',
@@ -41,6 +59,25 @@ async function git(cwd: string, args: string[], index?: string, inspectError = f
 }
 async function gitText(cwd: string, args: string[], index?: string) {
   return (await git(cwd, args, index)).toString().trimEnd()
+}
+async function streamGitBlob(cwd: string, blob: string, target: string) {
+  const child = spawn('/usr/bin/git', ['--no-pager', '-c', 'core.hooksPath=/dev/null',
+    '-c', 'core.fsmonitor=false', 'cat-file', 'blob', blob], {
+    cwd, env: gitEnvironment(), stdio: ['ignore', 'pipe', 'pipe']
+  })
+  let diagnostic = ''
+  child.stderr.setEncoding('utf8')
+  child.stderr.on('data', (chunk: string) => { diagnostic = (diagnostic + chunk).slice(-1600) })
+  const completion = new Promise<number | null>((resolve, reject) => {
+    child.once('error', reject)
+    child.once('close', resolve)
+  })
+  const timer = setTimeout(() => child.kill('SIGKILL'), 120_000)
+  try {
+    const [code] = await Promise.all([completion,
+      pipeline(child.stdout, createWriteStream(target, { flags: 'wx', mode: 0o600 }))])
+    if (code !== 0) throw new Error(diagnostic || '无法读取 Git 运行记录。')
+  } finally { clearTimeout(timer); if (child.exitCode === null) child.kill('SIGKILL') }
 }
 async function head(cwd: string) {
   // This returns an empty string for an unborn branch.
@@ -151,6 +188,7 @@ export class CodingStore {
   private queue: Promise<unknown> = Promise.resolve()
   private ready: Promise<void>
   private busy = new Set<string>()
+  private traceCopies = new Map<string, Promise<string>>()
 
   private directory: string
   constructor(directory: string) {
@@ -312,6 +350,86 @@ export class CodingStore {
       return this.status(id)
     })
   }
+  async archiveTrace(workspace: CodeWorkspace, nodeId: string, journal: ClosedCodeTrace): Promise<CodeTraceInfo> {
+    validateTraceId(nodeId)
+    validateTraceId(journal.runId, '运行编号')
+    const expected = join(this.directory, 'runs', traceKey(nodeId) + '.jsonl')
+    if (journal.nodeId !== nodeId || resolve(journal.path) !== resolve(expected)) throw new Error('运行记录路径或节点无效。')
+    const scratch = await mkdtemp(join(this.directory, 'trace-archive-'))
+    const file = join(scratch, 'trace.jsonl')
+    let source: Awaited<ReturnType<typeof open>> | undefined
+    try {
+      source = await open(journal.path, constants.O_RDONLY | constants.O_NOFOLLOW)
+      if (!(await source.stat()).isFile()) throw new Error('运行记录不是普通文件。')
+      // Freeze a private copy before hashing, so an unbound retry cannot append
+      // to the file between integrity validation and Git's object write.
+      await pipeline(source.createReadStream({ autoClose: false }), createWriteStream(file, { flags: 'wx', mode: 0o600 }))
+      const actual = await inspectCodeTrace(file, nodeId)
+      if (actual.events !== journal.events || actual.bytes !== journal.bytes || actual.sha256 !== journal.sha256) {
+        throw new Error('运行记录在关闭后发生变化，原文件已保留。')
+      }
+      const blob = await gitText(workspace.path, ['hash-object', '-w', '--no-filters', '--', file])
+      const info = traceInfo({ format: 'jsonl-v1', blob, events: actual.events, bytes: actual.bytes,
+        sha256: actual.sha256, runId: journal.runId, nodeId }, nodeId)
+      const bound = await gitText(workspace.path, ['rev-parse', '--revs-only', turnRef(nodeId)])
+      if (bound) {
+        const metadata = JSON.parse(await gitText(workspace.path, ['show', '-s', '--format=%b', bound]))
+        const previous = traceInfo(metadata.trace, nodeId)
+        if (previous.blob !== info.blob || previous.sha256 !== info.sha256) throw new Error('已绑定节点的运行记录不能替换。')
+        return previous
+      }
+      const previous = await gitText(workspace.path, ['rev-parse', '--revs-only', traceRef(nodeId)])
+      // The dedicated blob ref makes the JSONL reachable by Git GC; commit
+      // message text containing an object ID alone would not retain the object.
+      await git(workspace.path, ['update-ref', traceRef(nodeId), blob, previous || '0'.repeat(blob.length)])
+      return info
+    } finally { await source?.close(); await rm(scratch, { recursive: true, force: true }) }
+  }
+  private async traceFile(cwd: string, nodeId: string, info: CodeTraceInfo) {
+    const common = await repositoryDirectory(cwd)
+    const key = common + '/' + info.blob
+    let copy = this.traceCopies.get(key)
+    if (!copy) {
+      copy = (async () => {
+        const directory = join(this.directory, 'trace-cache')
+        await mkdir(directory, { recursive: true, mode: 0o700 })
+        const file = join(directory, info.blob + '.jsonl')
+        const valid = async (path: string) => {
+          const actual = await inspectCodeTrace(path, nodeId)
+          if (actual.events !== info.events || actual.bytes !== info.bytes || actual.sha256 !== info.sha256) {
+            throw new Error('运行记录校验失败。')
+          }
+        }
+        try { await valid(file); return file }
+        catch (error) {
+          if (failure(error) !== 'ENOENT') await rm(file, { force: true })
+        }
+        const temp = file + '.' + randomUUID()
+        try {
+          await streamGitBlob(cwd, info.blob, temp)
+          await valid(temp)
+          await rename(temp, file)
+          return file
+        } finally { await rm(temp, { force: true }) }
+      })()
+      this.traceCopies.set(key, copy)
+      copy.catch(() => { if (this.traceCopies.get(key) === copy) this.traceCopies.delete(key) })
+    }
+    return copy
+  }
+  async readTrace(id: string, nodeId: string, after = 0, limit = 100): Promise<CodeTracePage> {
+    validateTraceId(nodeId)
+    validateTracePageArgs(after, limit)
+    const workspace = await this.workspace(id)
+    const bound = await gitText(workspace.path, ['rev-parse', '--revs-only', turnRef(nodeId)])
+    if (!bound) return { records: [], next: after, done: true, available: false }
+    const metadata = JSON.parse(await gitText(workspace.path, ['show', '-s', '--format=%b', bound]))
+    if (metadata.nodeId !== nodeId) throw new Error('Git 对话节点无效。')
+    if (!metadata.trace) return { records: [], next: after, done: true, available: false }
+    const info = traceInfo(metadata.trace, nodeId)
+    const file = await this.traceFile(workspace.path, nodeId, info)
+    return { ...await readTraceFilePage(file, nodeId, after, limit), complete: true, partial: Boolean(info.partial) }
+  }
   async existingTurn(workspace: CodeWorkspace, nodeId: string) {
     const id = await gitText(workspace.path, ['rev-parse', '--revs-only', turnRef(nodeId)])
     if (!id) return
@@ -320,10 +438,15 @@ export class CodingStore {
       throw new Error('已绑定的对话节点数据无效。')
     }
     return { answer: metadata.answer as string, before: metadata.before as string, after: id,
+      ...(metadata.trace ? { trace: traceInfo(metadata.trace, nodeId) } : {}),
       cancelled: metadata.outcome === 'cancelled', status: await this.status(metadata.workspaceId) }
   }
   async turn(workspace: CodeWorkspace, parentCommit: string, details: TurnDetails) {
     const parent = await revision(workspace.path, parentCommit)
+    if (details.trace) {
+      const info = traceInfo(details.trace, details.nodeId)
+      if (await gitText(workspace.path, ['rev-parse', '--verify', traceRef(details.nodeId)]) !== info.blob) throw new Error('运行记录尚未固定到 Git。')
+    }
     return treeIndex(workspace.path, async (_index, tree) => {
       const scratch = await mkdtemp(join(tmpdir(), 'rove-turn-'))
       try {
@@ -337,17 +460,20 @@ export class CodingStore {
       } finally { await rm(scratch, { recursive: true, force: true }) }
     })
   }
-  async fork(id: string, commit?: string, label?: string) {
+  async fork(id: string, destination: string, commit?: string, label?: string) {
     return this.locking(id, async workspace => {
-      const base = commit ? await revision(workspace.path, commit) : await snapshot(workspace.path, 'Rove · 派生工作区')
-      const suffix = randomUUID()
-      const name = typeof label === 'string' && label.trim() ? label.trim().slice(0, 90) : '方案 ' + suffix.slice(0, 8)
-      const branchName = 'rove/' + suffix
-      const directory = join(this.directory, 'worktrees', workspace.projectId)
-      await mkdir(directory, { recursive: true, mode: 0o700 })
-      const target = join(await realpath(directory), suffix)
+      if (typeof destination !== 'string' || !destination.trim()) throw new Error('请选择分支工作区的文件夹。')
+      const chosen = resolve(destination)
+      const target = await realpath(chosen)
+      const targetStat = await lstat(chosen)
+      if (target !== chosen || !targetStat.isDirectory() || targetStat.isSymbolicLink()) throw new Error('请选择普通文件夹作为分支工作区。')
       const nested = relative(workspace.path, target)
       if (!nested || !(nested.startsWith('..' + sep) || nested === '..' || isAbsolute(nested))) throw new Error('新工作区目录不能位于源仓库内。')
+      if ((await readdir(target)).length) throw new Error('请选择一个空文件夹，避免覆盖已有文件。')
+      const base = commit ? await revision(workspace.path, commit) : await snapshot(workspace.path, 'Rove · 派生工作区')
+      const suffix = randomUUID()
+      const name = typeof label === 'string' && label.trim() ? label.trim().slice(0, 90) : basename(target)
+      const branchName = 'rove/' + suffix
       try {
         await git(workspace.path, ['worktree', 'add', '-b', branchName, target, base])
       } catch (error) {
@@ -362,6 +488,7 @@ export class CodingStore {
           p.id === workspace.projectId ? { ...p, workspaces: [...p.workspaces, fork] } : p)))
       } catch (error) {
         await git(workspace.path, ['worktree', 'remove', target])
+        await mkdir(target, { mode: targetStat.mode & 0o777 })
         await git(workspace.path, ['branch', '-D', branchName])
         throw error
       }

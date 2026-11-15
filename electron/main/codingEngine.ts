@@ -6,7 +6,10 @@ import { parseEnv } from 'node:util'
 import type { CodeEngine } from '../../src/codingTypes'
 
 interface EnginePaths { envFile: string; appRoot: string; storageDir: string; resourcesPath: string }
-interface RunOptions { cwd: string; prompt: string; kind: 'ask' | 'edit'; signal: AbortSignal; onProgress(message: string): void }
+interface RunOptions {
+  cwd: string; prompt: string; kind: 'ask' | 'edit'; signal: AbortSignal; onProgress(message: string): void
+  onEvent?(event: Record<string, unknown>): Promise<void> | void
+}
 
 const official = 'https://api.deepseek.com/anthropic'
 const isOfficial = (url: URL) => url.origin === 'https://api.deepseek.com'
@@ -72,8 +75,36 @@ function childEnv(home: string, settings: Settings, host: Runtime) {
   return { ...env, PATH: [...host.binPaths, env.PATH || '/usr/bin:/bin:/usr/sbin:/sbin'].join(delimiter),
     DSH_HOME: home, DEEPSEEK_API_KEY: settings.key, DEEPSEEK_BASE_URL: settings.baseURL }
 }
+const maxEventBytes = 16 * 1024 * 1024
+function redactText(message: string, key: string) {
+  return (key ? message.replaceAll(key, '[密钥已省略]') : message)
+    .replace(/(?:sk-[\w-]{12,}|gh[pousr]_[\w-]{12,}|github_pat_[\w-]{12,})/g, '[密钥已省略]')
+}
+/** Redact string values and keys without dropping any event fields. */
+export function sanitizeHarnessEvent(event: Record<string, unknown>, key: string) {
+  const clean: Record<string, unknown> = {}
+  const pending: { source: object; target: Record<string, unknown> | unknown[] }[] = [{ source: event, target: clean }]
+  while (pending.length) {
+    const { source, target } = pending.pop()!
+    for (const [name, original] of Object.entries(source)) {
+      const redacted = redactText(name, key)
+      // Distinct credential-bearing keys may redact to the same placeholder.
+      // Keep every field under an unambiguous redacted name in that case.
+      let field = redacted, suffix = 2
+      while (Object.hasOwn(target, field)) field = redacted + ' [' + suffix++ + ']'
+      let value: unknown = typeof original === 'string' ? redactText(original, key) : original
+      if (original && typeof original === 'object') {
+        value = Array.isArray(original) ? [] : {}
+        pending.push({ source: original, target: value as Record<string, unknown> | unknown[] })
+      }
+      Object.defineProperty(target, field, { value, enumerable: true, configurable: true, writable: true })
+    }
+  }
+  return clean
+}
+
 function displayError(message: string, key: string) {
-  return message.replaceAll(key, '[密钥已省略]').replace(/(?:sk-[\w-]{12,}|gh[pousr]_[\w-]{12,}|github_pat_[\w-]{12,})/g, '[密钥已省略]').slice(0, 1000)
+  return redactText(message, key).slice(0, 1000)
 }
 
 async function invoke(host: Runtime, home: string, patch: string, settings: Settings, options: RunOptions) {
@@ -82,7 +113,9 @@ async function invoke(host: Runtime, home: string, patch: string, settings: Sett
   const child = spawn(host.executable, args, { cwd: options.cwd, env: childEnv(home, settings, host), shell: false,
     detached: true, stdio: ['pipe', 'pipe', 'pipe'] })
   let final: { text: string; reason: string } | undefined
-  let protocolError = '', line = '', diagnostic = ''
+  let protocolError = '', diagnostic = '', errTail = '', step = 0
+  let captureError: unknown, streamError: unknown
+  let writes: Promise<void> = Promise.resolve()
   let timer: ReturnType<typeof setTimeout> | undefined
   function kill(signal: NodeJS.Signals) {
     if (!child.pid || child.exitCode !== null || child.signalCode !== null) return
@@ -93,40 +126,131 @@ async function invoke(host: Runtime, home: string, patch: string, settings: Sett
     timer ??= setTimeout(() => kill('SIGKILL'), 3000)
   }
   const onExit = () => kill('SIGKILL')
-  function parse(raw: string) {
-    if (!raw.trim() || protocolError) return
-    let e
-    try { e = JSON.parse(raw) } catch { protocolError = 'DSH 返回了无效的 JSON 事件。'; cancel(); return }
-    if (!e || typeof e !== 'object') return
+  async function record(event: Record<string, unknown>) {
+    if (captureError) throw captureError
+    const next = writes.then(() => {
+      if (captureError) throw captureError
+      return options.onEvent?.(sanitizeHarnessEvent(event, settings.key))
+    })
+    // Each reader awaits its write. There can be at most one pending event per
+    // pipe, and Readable's high-water mark applies backpressure to the child.
+    writes = next.catch(error => {
+      captureError ??= new Error('运行记录写入失败：' + displayError(error instanceof Error ? error.message : String(error), settings.key), { cause: error })
+      cancel()
+    })
+    try { await next } catch (error) { throw captureError ?? error }
+  }
+  async function protocolFailure(raw: string, message: string) {
+    protocolError ||= message
+    const bytes = Buffer.from(raw)
+    await record({ type: 'protocol_error', message,
+      text: bytes.subarray(0, maxEventBytes).toString(),
+      ...(bytes.length > maxEventBytes ? { truncated: true, originalBytes: bytes.length, limitBytes: maxEventBytes } : {}) })
+    cancel()
+  }
+  async function parse(raw: string) {
+    if (!raw.trim()) return
+    if (Buffer.byteLength(raw) > maxEventBytes) {
+      await protocolFailure(raw, 'DSH 返回的单条事件超过 16 MiB。')
+      return
+    }
+    let parsed
+    try { parsed = JSON.parse(raw) }
+    catch { await protocolFailure(raw, 'DSH 返回了无效的 JSON 事件。'); return }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      await protocolFailure(raw, 'DSH 返回的 JSON 事件不是对象。')
+      return
+    }
+    const e = sanitizeHarnessEvent(parsed, settings.key)
+    await record(e)
     if (e.type === 'session') options.onProgress('DSH 会话已启动。')
-    if (e.type === 'status' && e.phase === 'step_start') options.onProgress('DSH 正在处理任务…')
-    if (e.type === 'tool_call') options.onProgress('DSH 正在调用工具' + (typeof e.tool === 'string' && /^[\w.-]{1,64}$/.test(e.tool) ? ' ' + e.tool : '') + '。')
+    if (e.type === 'status' && e.phase === 'step_start') options.onProgress('DSH 正在处理第 ' + (++step) + ' 步…')
+    if (e.type === 'status' && e.phase === 'step_end') options.onProgress('第 ' + step + ' 步已完成，正在继续…')
+    if (e.type === 'status' && e.phase === 'turn_end') options.onProgress('DSH 正在整理结果…')
+    if (e.type === 'tool_call') options.onProgress('DSH 正在调用工具' + (typeof e.tool === 'string' && /^[\w.:-]{1,64}$/.test(e.tool) ? ' ' + e.tool : '') + '。')
     if (e.type === 'tool_result') options.onProgress(e.status === 'error' ? '工具返回错误。' : '工具执行完毕。')
     if (e.type === 'error' && typeof e.message === 'string') diagnostic = displayError(e.message, settings.key)
-    if (e.type === 'final' && typeof e.text === 'string') final = { text: e.text, reason: e.reason?.kind }
+    if (e.type === 'final' && typeof e.text === 'string') final = { text: e.text, reason: (e.reason as {kind?: string} | undefined)?.kind ?? '' }
   }
-  const completion = new Promise<number | null>((resolve, reject) => { child.once('error', reject); child.once('close', resolve) })
-  child.stdout.setEncoding('utf8')
-  child.stdout.on('data', (chunk: string) => {
-    if (protocolError) return
-    line += chunk
-    for (let end = line.indexOf('\n'); end >= 0; end = line.indexOf('\n')) {
-      parse(line.slice(0, end)); line = line.slice(end + 1)
+  async function readStdout() {
+    let line = ''
+    for await (const chunk of child.stdout) {
+      line += chunk as string
+      for (let end = line.indexOf('\n'); end >= 0; end = line.indexOf('\n')) {
+        const raw = line.slice(0, end)
+        line = line.slice(end + 1)
+        await parse(raw)
+      }
+      if (Buffer.byteLength(line) > maxEventBytes) {
+        await protocolFailure(line, 'DSH 返回的单条事件超过 16 MiB。')
+        line = ''
+      }
     }
-    if (line.length > 16 * 1024 * 1024) { line = ''; protocolError = 'DSH 返回的单条事件超过 16 MiB。'; cancel() }
+    if (line) await parse(line)
+  }
+  async function readStderr() {
+    // Keep only a short undecided suffix so configured keys split across chunks
+    // are redacted. Long credential tokens are masked incrementally until their
+    // terminator; a child cannot force an unbounded stderr line into memory.
+    let pending = '', maskingToken = false
+    const token = /(?:sk-[\w-]{12,}|gh[pousr]_[\w-]{12,}|github_pat_[\w-]{12,})/y
+    const reserve = Math.max(settings.key.length - 1, 22)
+    async function flush(chunk: string, eof = false) {
+      let data = pending + chunk, output = '', cursor = 0
+      if (maskingToken) {
+        cursor = /^[\w-]*/.exec(data)![0].length
+        if (cursor === data.length) { pending = ''; return }
+        maskingToken = false
+      }
+      const limit = eof ? data.length : Math.max(0, data.length - reserve)
+      while (cursor < limit) {
+        if (settings.key && data.startsWith(settings.key, cursor)) {
+          output += '[密钥已省略]'; cursor += settings.key.length
+          continue
+        }
+        token.lastIndex = cursor
+        const found = token.exec(data)
+        if (found) {
+          output += '[密钥已省略]'; cursor += found[0].length
+          if (!eof && cursor === data.length) maskingToken = true
+        } else { output += data[cursor]; cursor++ }
+      }
+      pending = data.slice(cursor)
+      if (output) {
+        errTail = (errTail + output).slice(-6000)
+        await record({ type: 'diagnostic', text: output })
+      }
+    }
+    for await (const chunk of child.stderr) await flush(chunk as string)
+    await flush('', true)
+  }
+  const completion = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve, reject) => {
+    child.once('error', reject)
+    child.once('close', (code, signal) => resolve({ code, signal }))
   })
-  let errTail = ''
+  child.stdout.setEncoding('utf8')
   child.stderr.setEncoding('utf8')
-  child.stderr.on('data', (chunk: string) => { errTail = (errTail + chunk).slice(-6000) })
+  // Reader failures stop the process but resolve their task promises, so a failed
+  // journal cannot become an unhandled rejection while we await child shutdown.
+  const guardReader = (reader: Promise<void>) => reader.catch(error => { streamError ??= error; cancel() })
+  const stdout = guardReader(readStdout()), stderr = guardReader(readStderr())
   child.stdin.on('error', () => {})
   options.signal.addEventListener('abort', cancel, { once: true })
   process.once('exit', onExit)
   if (options.signal.aborted) cancel()
   try {
     child.stdin.end(options.prompt)
-    const code = await completion
-    if (line) parse(line)
+    const [exited] = await Promise.allSettled([completion, stdout, stderr])
+    await writes
+    if (captureError) throw captureError
+    if (exited.status === 'rejected') {
+      await record({ type: 'process_error', message: displayError(String(exited.reason), settings.key) })
+      throw exited.reason
+    }
+    const { code, signal } = exited.value
+    await record({ type: 'process_exit', code, signal })
     if (options.signal.aborted) return { answer: final?.text || '已停止 DSH，当前代码状态已保留。', cancelled: true }
+    if (streamError) throw streamError
     if (protocolError) throw new Error(protocolError)
     if (code !== 0 || final?.reason !== 'completed') {
       const safe = diagnostic || displayError(errTail.split(/\r?\n/).reverse().find(s => /^dsh:/i.test(s)) || '', settings.key)
@@ -165,6 +289,13 @@ export function createHarnessEngine(paths: EnginePaths) {
       const patch = join(dir, 'settings.yml')
       // Each item is a JSON mapping in a YAML sequence; configuration values stay data.
       await writeFile(patch, rows.map(row => '- ' + JSON.stringify(row)).join('\n') + '\n', { mode: 0o600 })
+      try {
+        await options.onEvent?.(sanitizeHarnessEvent({ type: 'runtime', version: host.version,
+          model: settings.model || 'runtime-default', baseURL: settings.baseURL,
+          ...(host.executable === process.execPath ? { nodeVersion: process.version } : {}) }, settings.key))
+      } catch (error) {
+        throw new Error('运行记录写入失败：' + displayError(error instanceof Error ? error.message : String(error), settings.key), { cause: error })
+      }
       return await invoke(host, home, patch, settings, options)
     } finally { await rm(dir, { recursive: true, force: true }) }
   }

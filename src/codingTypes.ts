@@ -17,8 +17,27 @@ export interface CodeStatus {
 }
 export interface CodeFile { path: string; content: string; hash: string }
 export interface CodeRunRequest { runId: string; workspaceId: string; prompt: string; context: string; kind: 'ask' | 'edit'; parentCommit?: string; nodeId?: string }
-export interface CodeRunResult { answer: string; before: string; after: string; status: CodeStatus; cancelled: boolean }
-export interface CodeProgress { runId: string; message: string; before?: string }
+export interface CodeTraceRecord {
+  version: 1
+  seq: number
+  at: string
+  runId: string
+  nodeId: string
+  event: Record<string, unknown>
+}
+export interface CodeTraceInfo {
+  format: 'jsonl-v1'
+  partial?: boolean
+  blob: string
+  events: number
+  bytes: number
+  sha256: string
+  runId: string
+  nodeId: string
+}
+export interface CodeTracePage { records: CodeTraceRecord[]; next: number; done: boolean; available: boolean; complete?: boolean; partial?: boolean }
+export interface CodeRunResult { answer: string; before: string; after: string; status: CodeStatus; cancelled: boolean; trace?: CodeTraceInfo }
+export interface CodeProgress { runId: string; message: string; before?: string; record?: CodeTraceRecord }
 export interface CodeEngine { available: boolean; version: string; authenticated: boolean; message: string }
 export interface CodingBridge {
   listProjects(): Promise<CodeProject[]>
@@ -28,7 +47,8 @@ export interface CodingBridge {
   saveFile(request: {workspaceId: string; path: string; content: string; expectedHash: string}): Promise<CodeFile>
   diff(request: {workspaceId: string; from?: string; to?: string}): Promise<string>
   checkpoint(request: {workspaceId: string; message: string}): Promise<CodeStatus>
-  fork(request: {workspaceId: string; commit?: string; label?: string}): Promise<CodeWorkspace>
+  fork(request: {workspaceId: string; commit?: string; label?: string}): Promise<CodeWorkspace | null>
+  trace(request: {workspaceId: string; nodeId: string; after?: number; limit?: number}): Promise<CodeTracePage>
   run(request: CodeRunRequest): Promise<CodeRunResult>
   cancel(runId: string): Promise<void>
   engine(): Promise<CodeEngine>

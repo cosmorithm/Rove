@@ -5,13 +5,15 @@ import QuestionCard from './QuestionCard.vue'
 import ConversationCanvas from './ConversationCanvas.vue'
 import ResizableSidebar from './ResizableSidebar.vue'
 import SafeMarkdown from './SafeMarkdown.vue'
+import StudyContextPanel from './StudyContextPanel.vue'
 import { selectedAnswerText } from './selectedText'
 import { buildLecturePrompt, parseLecture } from './lectureFormat'
 import { restoreLectureSections } from './lectureSections'
 import { readStudyOutline, type StudyOutlineItem } from './studyOutline'
 import type { PDFDocumentProxy } from 'pdfjs-dist'
 import { readLibrary, saveLibrary, loadPdf, type Block } from './library'
-import type { Card, CardQuestion } from './types'
+import { answerText, cardTitle, type Card, type CardQuestion } from './types'
+import type { StudyContextSelection, StudyTurnMetadata, StudyTurnSource, StudyTurnVersion } from './studyContextTypes'
 
 type Pdf = { name: string; source: { url: string } | { data: string } }
 type Page = { page: number; text: string }
@@ -46,6 +48,76 @@ const configError = ref('')
 let pendingConfig: Promise<typeof aiConfig.value> | undefined
 let navigationVersion = 0
 let switchToken = 0
+
+const contextSettingsKey = 'rove-study-context-v1'
+function readContextSelection(): StudyContextSelection {
+  try {
+    const saved = JSON.parse(localStorage.getItem(contextSettingsKey) || 'null')
+    return { depth: Number.isInteger(saved?.depth) && saved.depth >= 0 && saved.depth <= 100 ? saved.depth : 3,
+      level: saved?.level === 'L0' || saved?.level === 'L2' ? saved.level : 'L1' }
+  } catch { return { depth: 3, level: 'L1' } }
+}
+const contextSelection = reactive<StudyContextSelection>(readContextSelection())
+watch(contextSelection, value => {
+  try { localStorage.setItem(contextSettingsKey, JSON.stringify(value)) }
+  catch { error.value = '上下文设置暂未保存，当前选择仍然有效。' }
+}, { deep: true })
+function setContextDepth(value: string) {
+  const number = Number(value)
+  contextSelection.depth = Number.isFinite(number) ? Math.max(0, Math.min(100, Math.floor(number))) : 0
+}
+const preparingContext = reactive(new Set<string>())
+const contextMetadata = ref<StudyTurnMetadata | null>(null)
+const metadataLoading = ref(false)
+const metadataError = ref('')
+const cacheSaving = reactive(new Set<string>())
+let metadataToken = 0
+function sourceKey(source: StudyTurnSource) {
+  // Compare semantic source fields, independent of JSON key order or undefined values.
+  return JSON.stringify([source.nodeId, source.parentId || '', source.question, source.answer,
+    source.answerVersion || 'original', source.excerpt || '', source.excerptVersion || '', source.page || null,
+    source.document.id, source.document.name, source.document.blockId, source.document.title, source.outcome || 'completed'])
+}
+function snapshotSource(card: Card, block: Pick<Block, 'id' | 'title'>, document: { id: string; name: string }, parentId?: string,
+  answer = answerText(card), answerVersion: 'original' | 'edited' = card.editedAnswer !== undefined ? 'edited' : 'original'): StudyTurnSource {
+  return { nodeId: card.id, parentId, question: card.question, answer, answerVersion,
+    excerpt: card.excerpt, excerptVersion: card.excerptVersion, page: card.page,
+    document: { ...document, blockId: block.id, title: block.title },
+    outcome: card.demo ? 'demo' : card.answer.startsWith('回答失败：') ? 'failed' : 'completed' }
+}
+function versionFor(metadata: StudyTurnMetadata | null, source: StudyTurnSource) {
+  return [...(metadata?.versions || [])].reverse().find(version => sourceKey(version.source) === sourceKey(source))
+}
+function cacheState(card: Card, metadata: StudyTurnMetadata, source: StudyTurnSource) {
+  const version = versionFor(metadata, source)
+  card.studyContext = { ...card.studyContext, revision: version?.revision, title: version?.summaries.L0?.text,
+    state: version?.state || 'pending', error: version?.error }
+}
+async function saveTurnCache(card: Card, source: StudyTurnSource, current: () => StudyTurnSource) {
+  const key = sourceKey(source)
+  cacheSaving.add(key)
+  card.studyContext = { ...card.studyContext, title: undefined, state: 'pending', error: undefined }
+  try {
+    const metadata = await window.studyContextBridge.save(source)
+    if (sourceKey(current()) === key) cacheState(card, metadata, source)
+    if (selectedTurnSource.value && sourceKey(selectedTurnSource.value) === key) {
+      metadataToken++
+      contextMetadata.value = metadata
+      metadataLoading.value = false
+      metadataError.value = versionFor(metadata, source)?.error || ''
+    }
+    return metadata
+  } catch (reason) {
+    const message = reason instanceof Error ? reason.message : String(reason)
+    if (sourceKey(current()) === key) card.studyContext = { ...card.studyContext, state: 'failed', error: message }
+    if (selectedTurnSource.value && sourceKey(selectedTurnSource.value) === key) {
+      metadataToken++
+      metadataLoading.value = false
+      metadataError.value = message
+    }
+    return null
+  } finally { cacheSaving.delete(key) }
+}
 
 function headingText(title: string) {
   if (title === '准备开始学习') return '整份资料'
@@ -223,7 +295,7 @@ async function generateKnowledge() {
     const answer = await window.studyBridge.ask({ question: buildLecturePrompt(), context: full.slice(0, 24000) })
     const sections = parseLecture(answer, count)
     if (!sections.length) throw new Error('未收到可用的知识点内容。')
-    const generated = sections.map(section => ({ ...section, id: crypto.randomUUID(), cards: [] as Card[] }))
+    const generated: Block[] = sections.map(section => ({ ...section, id: crypto.randomUUID(), cards: [] as Card[] }))
     for (const block of target.blocks) {
       if (!block.cards.length) continue
       const match = generated.find(item => item.title === block.title)
@@ -258,6 +330,52 @@ const mapped = computed(() => {
     if (path) return { block, path, card: path[path.length - 1] }
   }
 })
+const selectedTurnSource = computed(() => {
+  const current = mapped.value
+  if (!current || current.card.loading || !current.card.answer) return
+  return snapshotSource(current.card, current.block, { id: note.value.id, name: documentName.value }, current.path.at(-2)?.id)
+})
+const selectedTurnVersion = computed<StudyTurnVersion | undefined>(() => selectedTurnSource.value && versionFor(contextMetadata.value, selectedTurnSource.value))
+const selectedCacheBusy = computed(() => metadataLoading.value || !!selectedTurnSource.value && cacheSaving.has(sourceKey(selectedTurnSource.value)))
+async function loadTurnMetadata(source: StudyTurnSource | undefined, previous?: StudyTurnSource) {
+  const token = ++metadataToken
+  contextMetadata.value = null
+  metadataError.value = ''
+  metadataLoading.value = !!source
+  if (!source) return
+  if (previous?.nodeId === source.nodeId && sourceKey(previous) !== sourceKey(source) && mapped.value?.card.id === source.nodeId) {
+    mapped.value.card.studyContext = { ...mapped.value.card.studyContext, title: undefined, revision: undefined,
+      state: 'pending', error: undefined }
+  }
+  try {
+    const metadata = await window.studyContextBridge.get(source.nodeId)
+    if (token !== metadataToken) return
+    contextMetadata.value = metadata
+    const version = versionFor(metadata, source)
+    if (version) {
+      metadataError.value = version.error || ''
+      if (mapped.value?.card.id === source.nodeId && metadata) cacheState(mapped.value.card, metadata, source)
+    }
+    // Opening a legacy turn backfills its title; failed attempts remain explicitly retryable.
+    // A changed answer has a distinct source revision and must not reuse the previous title.
+    const needsCache = !version || version.state === 'pending' || version.state === 'ready' && !version.summaries.L0?.text
+    if (needsCache && !cacheSaving.has(sourceKey(source)) && mapped.value?.card.id === source.nodeId) {
+      const card = mapped.value.card
+      await saveTurnCache(card, source, () => snapshotSource(card, { id: source.document.blockId, title: source.document.title },
+        { id: source.document.id, name: source.document.name }, source.parentId))
+    }
+  } catch (reason) {
+    if (token === metadataToken) metadataError.value = reason instanceof Error ? reason.message : String(reason)
+  } finally { if (token === metadataToken) metadataLoading.value = false }
+}
+watch(selectedTurnSource, (source, previous) => { void loadTurnMetadata(source, previous) })
+async function retryTurnCache() {
+  const current = mapped.value, source = selectedTurnSource.value
+  if (!current || !source || metadataLoading.value) return
+  metadataLoading.value = true
+  await saveTurnCache(current.card, source, () => snapshotSource(current.card, { id: source.document.blockId, title: source.document.title },
+    { id: source.document.id, name: source.document.name }, source.parentId))
+}
 function selectMappedCard(id: string) {
   selectedCardId.value = id
   if (!mapped.value) return
@@ -280,13 +398,30 @@ function startQuestion(blockId?: string) {
   nextTick(() => questionInput.value?.focus())
 }
 async function addQuestion(target: Block, question: string, excerpt: string, followup?: CardQuestion) {
+  question = question.trim()
+  if (!question) return
+  if (question.length > 4000) { draft.value = question; error.value = '问题最多支持 4,000 字，请缩短后重试。'; return }
   const parent = followup?.parent
+  const sourceDocument = { id: note.value.id, name: documentName.value }
+  const sourceBlock = { id: target.id, title: target.title }
+  const path = parent ? cardPath(target.cards, parent.id) : undefined
+  if (parent && !path) { error.value = '找不到追问的上层节点，请重新选择。'; return }
+  const choice: StudyContextSelection = { depth: contextSelection.depth, level: contextSelection.level }
+  // Freeze every chosen ancestor's source before the first async call, nearest node first.
+  const ancestors = (path || []).map((ancestor, index) => {
+    const immediate = ancestor.id === parent?.id && followup
+    const version = immediate ? followup.excerptVersion || (followup.parentAnswer === ancestor.answer ? 'original' : 'edited') : undefined
+    return snapshotSource(ancestor, sourceBlock, sourceDocument, path?.[index - 1]?.id,
+      immediate ? followup.parentAnswer : answerText(ancestor), version)
+  }).reverse()
   const page = parent ? parent.page : quotePage.value ?? (readerTab.value === 'source' ? sourcePage.value : pageForBlock(target))
   const viewer = pdfViewer.value
-  const docName = documentName.value
+  const currentSourcePage = sourcePage.value
+  const materialBody = target.body
   const card: Card = reactive({
     id: crypto.randomUUID(), question, excerpt, excerptVersion: followup?.excerptVersion,
-    page, answer: '', children: [], demo: !ready.value, loading: true
+    page, answer: '', children: [], demo: !ready.value, loading: true,
+    studyContext: { state: 'pending' }
   })
   const siblings = parent ? parent.children : target.cards
   siblings.push(card)
@@ -294,29 +429,40 @@ async function addQuestion(target: Block, question: string, excerpt: string, fol
   selectedBlockId.value = target.id
   readerOpen.value = true
   readerTab.value = 'content'
+  preparingContext.add(card.id)
   try {
-    const parts = [`资料：${docName}`, `知识点：${target.title}`]
-    if (excerpt) parts.push('选中内容：' + excerpt)
-    if (followup) parts.push('上层问题：' + followup.parent.question, '上层回答：' + followup.parentAnswer)
-    parts.push(target.body)
+    const materials = [`资料：${sourceDocument.name}`, `知识点：${sourceBlock.title}`]
+    if (excerpt) materials.push('选中内容：' + excerpt)
+    materials.push(materialBody)
     if (page) {
-      parts.push('原文第 ' + page + ' 页')
-      if (page === sourcePage.value && viewer) {
+      materials.push('原文第 ' + page + ' 页')
+      if (page === currentSourcePage && viewer) {
         const current = await viewer.getCurrentPageText()
-        if (current.page === page) parts.push(current.text)
+        if (current.page === page) materials.push(current.text)
       }
     }
-    const result = await askEngine(question, parts.join('\n'))
+    const prepared = await window.studyContextBridge.prepare({ nodeId: card.id, documentId: sourceDocument.id,
+      question, ancestors, selection: choice, materials: materials.join('\n'), limit: 24000 })
+    card.studyContext = { ...card.studyContext, request: { selection: { ...prepared.selection }, used: prepared.used,
+      limit: prepared.limit, truncated: prepared.truncated, nodes: prepared.entries.length } }
+    preparingContext.delete(card.id)
+    const result = await askEngine(question, prepared.context)
     card.answer = result.answer
     card.demo = result.demo
   } catch (reason) { card.answer = '回答失败：' + (reason instanceof Error ? reason.message : String(reason)) }
-  finally { card.loading = false }
+  finally {
+    preparingContext.delete(card.id)
+    card.loading = false
+    const current = () => snapshotSource(card, sourceBlock, sourceDocument, parent?.id)
+    void saveTurnCache(card, current(), current)
+  }
 }
 function branchFrom(block: Block, followup: CardQuestion) { void addQuestion(block, followup.question, followup.excerpt, followup) }
 function submitQuestion() {
   const question = draft.value.trim()
   const block = selectedBlock.value
   if (!question || !block) return
+  if (question.length > 4000) { error.value = '问题最多支持 4,000 字，请缩短后重试。'; return }
   draft.value = ''
   void addQuestion(block, question, selection.value)
   clearSelection()
@@ -389,14 +535,25 @@ function removeCard(card: Card) {
               </div>
               <button type="button" class="close-inspector" aria-label="关闭阅读侧栏" @click="closeReader">×</button>
             </header>
+            <section class="study-context-controls" aria-label="追问上下文设置">
+              <div class="study-context-pickers">
+                <label>向上继承<input type="number" min="0" max="100" step="1" aria-label="向上继承层数" :value="contextSelection.depth" @change="setContextDepth(($event.target as HTMLInputElement).value)" /><span>层</span></label>
+                <label>摘要<select v-model="contextSelection.level" aria-label="继承摘要级别"><option value="L0">L0 · 标题</option><option value="L1">L1 · 短摘要</option><option value="L2">L2 · 详细摘要</option></select></label>
+              </div>
+              <small>最近节点优先 · 超限截断 · 直接父节点为第 1 层</small>
+              <p v-if="mapped && preparingContext.has(mapped.card.id)" role="status">正在准备摘要上下文…</p>
+              <p v-else-if="mapped?.card.studyContext?.request" class="study-context-budget">本轮：{{ mapped.card.studyContext.request.selection.depth }} 层 / {{ mapped.card.studyContext.request.selection.level }} · {{ mapped.card.studyContext.request.used.toLocaleString() }} / {{ mapped.card.studyContext.request.limit.toLocaleString() }} 字<span v-if="mapped.card.studyContext.request.truncated"> · 已截断</span></p>
+            </section>
             <div v-if="readerTab === 'content'" :key="selectedCardId || selectedBlockId" class="map-detail-scroll">
               <template v-if="mapped">
                 <button type="button" class="reader-parent" @click="readBlock(mapped.block.id)">← <SafeMarkdown inline :text="headingText(mapped.block.title)" /></button>
                 <QuestionCard :key="mapped.card.id" standalone :card="mapped.card" :page-count="pageCount" :selected-id="selectedCardId"
                   @source="showSource" @ask="branchFrom(mapped.block, $event)" @remove="removeCard" />
+                <StudyContextPanel v-if="selectedTurnSource" :source="selectedTurnSource" :metadata="contextMetadata" :version="selectedTurnVersion"
+                  :busy="selectedCacheBusy" :error="metadataError || mapped.card.studyContext?.error || ''" @retry="retryTurnCache" />
                 <div v-if="mapped.card.children.length" class="reader-branches">
                   <span>后续追问</span>
-                  <button v-for="child in mapped.card.children" :key="child.id" type="button" @click="selectMappedCard(child.id)"><SafeMarkdown inline :text="child.question" /><span aria-hidden="true">↗</span></button>
+                  <button v-for="child in mapped.card.children" :key="child.id" type="button" :title="child.question" @click="selectMappedCard(child.id)"><span v-if="child.studyContext?.title">{{ cardTitle(child) }}</span><SafeMarkdown v-else inline :text="child.question" /><span aria-hidden="true">↗</span></button>
                 </div>
               </template>
               <section v-else-if="selectedBlock" class="chapter-reader">
@@ -408,7 +565,7 @@ function removeCard(card: Card) {
                 </div>
                 <div v-if="selectedBlock.cards.length" class="reader-branches">
                   <span>相关提问</span>
-                  <button v-for="card in selectedBlock.cards" :key="card.id" type="button" @click="selectMappedCard(card.id)"><SafeMarkdown inline :text="card.question" /><span aria-hidden="true">↗</span></button>
+                  <button v-for="card in selectedBlock.cards" :key="card.id" type="button" :title="card.question" @click="selectMappedCard(card.id)"><span v-if="card.studyContext?.title">{{ cardTitle(card) }}</span><SafeMarkdown v-else inline :text="card.question" /><span aria-hidden="true">↗</span></button>
                 </div>
               </section>
             </div>
@@ -442,3 +599,14 @@ function removeCard(card: Card) {
     </div>
   </div>
 </template>
+
+<style scoped>
+.study-context-controls { flex:none; padding:9px 15px 10px; border-bottom:1px solid #e0e6dc; background:#f9fbf6; }
+.study-context-pickers { display:flex; align-items:center; flex-wrap:wrap; gap:8px 16px; }
+.study-context-pickers label { display:flex; align-items:center; gap:5px; color:#526454; font-size:11px; }
+.study-context-pickers input,.study-context-pickers select { padding:3px 5px; min-width:0; color:#304b36; background:#fff; border:1px solid #d2ddcc; border-radius:5px; font:inherit; }
+.study-context-pickers input { width:42px; }
+.study-context-controls>small { display:block; margin-top:6px; color:#7a8979; font-size:10px; }
+.study-context-controls>p { margin:6px 0 0; color:#61715e; font-size:10px; }
+.study-context-budget span { color:#9a6c32; }
+</style>

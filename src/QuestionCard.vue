@@ -13,6 +13,7 @@ const emit = defineEmits<{
 }>()
 
 const hasEdit = computed(() => props.card.editedAnswer !== undefined)
+const autoTitle = computed(() => props.card.studyContext?.title?.trim() || '')
 const version = ref<AnswerVersion>(hasEdit.value ? 'edited' : 'original')
 const visibleAnswer = computed(() => answerText(props.card, version.value))
 const answerElement = ref<HTMLElement>()
@@ -112,11 +113,15 @@ function submit() {
       <button v-if="!standalone" type="button" class="fold" :title="card.collapsed ? '展开问题' : '收起问题'"
         :aria-label="card.collapsed ? '展开问题' : '收起问题'" :aria-expanded="!card.collapsed"
         @click="card.collapsed = !card.collapsed">{{ card.collapsed ? '▸' : '▾' }}</button>
-      <strong><SafeMarkdown inline :text="card.question" :page-count="pageCount" @source="emit('source', $event)" /></strong>
+      <strong><template v-if="autoTitle">{{ autoTitle }}</template><SafeMarkdown v-else inline :text="card.question" :page-count="pageCount" @source="emit('source', $event)" /></strong>
       <span v-if="!standalone && card.collapsed && card.children.length" class="branch-count">{{ card.children.length }} 个子问题</span>
       <button type="button" class="icon-btn delete-card" aria-label="删除问题及子问题" title="删除问题及子问题" @click="emit('remove', card)">×</button>
     </div>
     <div v-show="standalone || !card.collapsed" class="card-content">
+      <div v-if="autoTitle" class="original-question">
+        <small>原始提问</small>
+        <SafeMarkdown inline :text="card.question" :page-count="pageCount" @source="emit('source', $event)" />
+      </div>
       <button v-if="card.page" class="source-link" @click="emit('source', card.page)">原文第 {{ card.page }} 页 ↗</button>
       <blockquote v-if="card.excerpt" class="card-quote">
         <small v-if="card.excerptVersion">引自上层{{ label(card.excerptVersion) }}</small>
@@ -185,6 +190,8 @@ function submit() {
 .card-heading strong { min-width:0; overflow-wrap:anywhere; }
 .branch-count,.answer-kind,.clip-head small,.card-quote small { color:#657568; font-size:10px; }
 .card-content { padding:0 12px 12px 22px; }
+.original-question { margin:0 0 10px; padding:0 0 10px; border-bottom:1px solid #e3e9df; color:#425748; font-size:12px; line-height:1.6; white-space:pre-wrap; overflow-wrap:anywhere; }
+.original-question>small { display:block; margin-bottom:3px; color:#7a887b; font-size:10px; }
 .card-quote,.clips li { margin:8px 0; padding:7px 10px; border-left:2px solid #a7baaa; background:#f0f4ef; }
 .card-quote > small { display:block; }
 .quote-body { display:block; font-size:12px; line-height:1.55; color:#435748; white-space:pre-wrap; overflow-wrap:anywhere; }

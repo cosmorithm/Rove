@@ -6,6 +6,7 @@ import { pathToFileURL } from 'node:url'
 import { parseEnv } from 'node:util'
 import { importPdf, pdfScheme, servePdf } from './pdf'
 import { registerCoding } from './coding'
+import { registerStudyContext } from './studyContext'
 
 app.setName('Rove')
 
@@ -164,6 +165,7 @@ app.whenReady().then(() => {
       clearTimeout(timeout)
     }
   })
+  registerStudyContext({ ipcMain, requireReader, storageDir: libraryDirectory, readConfig: readAIConfig })
   registerCoding({ ipcMain, window: () => mainWindow, requireReader, storageDir: libraryDirectory, envFile, appRoot })
   createWindow()
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow() })

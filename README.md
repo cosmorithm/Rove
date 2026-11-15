@@ -32,13 +32,25 @@ You can select text or formulas from an answer, save excerpts, and use them in f
 
 The map supports zoom, fit-to-view, and keyboard navigation. Both the library sidebar and the reading sidebar have draggable dividers, remember their widths, and return to their default widths on double-click.
 
+## Learning context
+
+Each learning turn has its own metadata file, with the question, answer version, selected passage, document and page references, and the exact context sent for that request. Source revisions use content hashes. Each revision has three summary caches: **L0** is an automatic, single-line title (up to 32 UTF-16 units), **L1** is a short summary (up to 240 units), and **L2** retains more detail (up to 1,200 units). All three are generated in one model request and reused; editing an answer creates a new source revision while earlier versions remain available. L0 titles label map nodes and the side reader, with the original question preserved. Opening an older turn automatically fills in its missing title; failed generation can be retried in the metadata panel.
+
+Before a follow-up, choose how many levels to inherit (0–100) and whether to use L0, L1, or L2. The direct parent is level 1. Rove appends selected summaries from the nearest node toward the root, then appends the current learning material. It directly truncates the resulting context at 24,000 UTF-16 units, preserving nearer nodes first. The current question is sent separately. The metadata panel shows the selected nodes and revisions, actual transmitted text, and where content was truncated.
+
+New answers generate all three caches in the background. Older nodes generate missing caches when opened, selected for inheritance, or through the metadata panel. Summary errors are visible and retryable. Cache generation uses the learning model configured in `.env`; changing an answer invalidates the previous source revision's cache for that edited content.
+
 ## Coding mode
 
-Switch to **Coding** and open a project folder. Rove automatically initializes Git for a folder without a repository. Select a file to read or edit, ask DSH to explain the code, or ask it to implement a change in an independent Git worktree.
+Switch to **Coding** and open a project folder. Rove automatically initializes Git for a folder without a repository. Select a file to read or edit, ask DSH to explain the code, or ask it to implement a change directly in the selected workspace. The full workspace path is visible in the sidebar, and new files appear while a task runs. Tasks show their elapsed time and processing steps.
 
-Every conversation turn is bound to a unique Git commit, including read-only answers and stopped or failed model runs. The commit records that turn's code, question, answer, and supplied conversation context. A child turn points to its selected parent turn's commit. Reopening an earlier node lets you inspect its code or create another exploration from that version.
+Every conversation turn is bound to a unique Git commit, including read-only answers and stopped or failed model runs. The commit records that turn's code, question, answer, and supplied conversation context. A child turn points to its selected parent turn's commit. Reopening an earlier node lets you inspect its code and conversation. Running a new task uses the currently selected workspace's files; viewing history does not change files. To explore an earlier code version in another directory, explicitly choose **Branch in another directory** and select an empty folder.
 
-The side reader includes conversation, code, and diff tabs. File saves check for external changes. You can inspect a turn's before-and-after versions and explicitly commit working-tree changes. Turn records are retained under local `refs/rove/turns/` references in the selected repository.
+New Coding runs stream their public DSH events into an append-only JSONL journal with sequence numbers and receipt timestamps. The **Run records** tab shows tool calls, arguments, paired results, public model events, diagnostics, and final status while the task runs. Upstream truncation flags and incomplete-recording warnings stay visible. Credentials are redacted before these events are saved.
+
+At the end of a run, Rove archives the journal as a Git blob pinned under `refs/rove/traces/`, and stores its blob ID, SHA-256, byte count, and event count in that turn's commit metadata. Historical records are paginated from this immutable copy; ancestor tool records can be inspected through their Git metadata. Earlier nodes created before event recording was added have no Rove event journal.
+
+The side reader includes conversation, code, diff, and run-record tabs. File saves check for external changes. You can inspect a turn's before-and-after versions and explicitly commit working-tree changes. Turn records are retained under local `refs/rove/turns/` references in the selected repository.
 
 Coding mode bundles **DeepSeek Harness (dsh)**. Configure `DEEPSEEK_API_KEY` in the project `.env`, then refresh the engine in Coding mode. The default `DEEPSEEK_BASE_URL` is `https://api.deepseek.com/anthropic`, a Messages-compatible endpoint. Set `DEEPSEEK_MODEL` to choose a model, or leave it empty to use the bundled harness default. Your existing Git author and committer configuration is used for snapshots and conversation commits.
 
@@ -48,7 +60,7 @@ Rove investigates a graph-based AI harness in which users can branch, revisit, a
 
 The proposed context mechanism starts at the active node and follows its ancestors, selecting summaries or original material according to the current question and available context budget. Traceable sources and versioned context would let users inspect the information behind each answer.
 
-The prototype stores questions through parent–child links. Learning mode builds requests from the active knowledge point, selected passage, and direct parent question and answer. Coding mode supplies the selected ancestor conversation path and code context, with each turn's input and result recorded in Git. Automatic ancestor summaries and a reusable harness API are areas for further development.
+The prototype stores questions through parent–child links. Learning mode uses user-selected ancestor depth and L0/L1/L2 summaries, with request snapshots and versioned caches. Coding mode supplies the selected ancestor conversation path and code context, with each turn's input, result, and public tool events recorded in Git. The two modes currently use separate context builders; a reusable harness API remains an area for development.
 
 ## Tech stack
 
@@ -61,9 +73,9 @@ The prototype stores questions through parent–child links. Learning mode build
 | PDF reader | PDF.js (`pdfjs-dist`) | Page rendering, text selection, and text extraction |
 | Math rendering | KaTeX | LaTeX formulas in explanations, questions, and excerpts |
 | Markdown | Marked with a custom Vue renderer | Markdown parsing and rendered content |
-| Local persistence | Chromium localStorage, local PDF files, and IndexedDB for older imports | Saved questions, revisions, excerpts, and source documents |
+| Local persistence | Chromium localStorage, local metadata/cache files, PDF files, and IndexedDB for older imports | Saved questions, revisions, excerpts, source documents, and request context snapshots |
 | AI integration | OpenAI-compatible Chat Completions API | Configurable model provider through `.env` |
-| Coding engine | DeepSeek Harness (`@deepseek-ai/dsh`) | Read-only code questions and implementations in independent Git worktrees |
+| Coding engine | DeepSeek Harness (`@deepseek-ai/dsh`) | Code questions and implementations in the selected workspace; optional branches in a user-selected directory |
 | Coding runtime | Node.js 24.22.1 and npm 11.6.2 | Bundled standalone runtime for DSH and JavaScript project commands |
 | Code versioning | Git | Per-turn commits, immutable code snapshots, branch worktrees, and diffs |
 
@@ -119,16 +131,16 @@ To build the application code on its own, run `npm run build`. Build output is w
 
 ## Data and model requests
 
-Imported PDFs and study records are stored on your Mac. The current data directory is `~/Library/Application Support/知序`, retained from earlier builds. Reimporting a PDF with identical contents opens its existing study record.
+Imported PDFs and study records are stored on your Mac. Learning turn metadata, source revisions, summary caches, and context snapshots are stored under `study-context/` in the application data directory. The current data directory is `~/Library/Application Support/知序`, retained from earlier builds. Reimporting a PDF with identical contents opens its existing study record.
 
 When you organize a document or ask a question, Rove sends the relevant document text and question context to the model provider configured in `.env`. API keys are read by the Electron main process. `.env`, build output, installed dependencies, and `Rove.app` are excluded by `.gitignore`.
 
-Coding actions send the task, conversation path, and selected code to the DeepSeek provider configured for dsh. Coding projects and worktree locations are registered in the application data directory. Per-turn commits and their conversation records are stored locally in the selected Git repository.
+Coding actions send the task, conversation path, and selected code to the DeepSeek provider configured for dsh. Project registrations and workspace paths are kept in the application data directory; project source files stay in the workspace you select. Separate branch worktrees are created only in a directory you explicitly choose. Per-turn commits and their conversation records are stored locally in the selected Git repository.
 
 ## Current limits
 
 - Automatic knowledge-point generation uses extractable PDF text. Scanned PDFs can be viewed. OCR is a future extension.
-- Learning-mode follow-ups currently include the direct parent question and answer. Automatic ancestor summaries are part of the proposed context mechanism.
-- Learning-mode request context is capped at 24,000 UTF-16 code units, with a separate 4,000-unit cap for the question. Longer input is truncated.
+- Learning-mode inheritance uses the selected L0/L1/L2 caches. L0 carries only the turn title; use L1 or L2 when the follow-up needs conclusions or reasoning details. Fetching historical PDF page text automatically is a further improvement; page text is currently included when available in the reader.
+- Learning-mode context is capped at 24,000 UTF-16 units with visible truncation. Questions over 4,000 units are rejected before sending. Summary generation separately marks truncated inputs or outputs while keeping the original source metadata.
 - Answer editing keeps the original response and the latest revision. Coding-mode Git records retain the original completed turn, with revisions included in later turns when selected as context.
 - Source-page links help readers check the original document. Answer verification is a further research goal.

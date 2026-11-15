@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises'
+import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { CodingStore } from '../codingCore.ts'
@@ -41,9 +41,13 @@ test('opening a new folder creates main once; empty repos can bind a first turn 
   assert.equal(git(root, 'show', '-s', '--format=%an|%cn', after), 'cosmorithm|cosmorithm')
   assert.equal(git(root, 'rev-parse', '--revs-only', 'HEAD'), '')
   await assert.rejects(lstat(join(root, '.git/index')), { code: 'ENOENT' })
-  const other = await store.fork(workspace.id, after, 'experiment')
+  const selected = join(tmp, 'chosen branch')
+  await mkdir(selected)
+  const other = await store.fork(workspace.id, selected, after, 'experiment')
   assert.equal(git(other.path, 'rev-parse', 'HEAD'), after)
+  assert.equal(other.path, selected)
   assert.notEqual(other.path, root)
+  assert.equal((await store.listProjects())[0].workspaces.length, 2)
 })
 
 test('a nested selection opens the existing worktree root and preserves HEAD and staged contents', async t => {
@@ -94,4 +98,30 @@ test('a permission failure cannot turn a damaged checkout into a new repository'
   try { await assert.rejects(store.importProject(root)) }
   finally { await chmod(marker, 0o700) }
   assert.deepEqual(await readdir(marker), ['preserve-me'])
+})
+
+
+test('fork requires an explicit empty directory outside the source checkout', async t => {
+  const { root, tmp, store } = await fixture(t)
+  const project = await store.importProject(root)
+  author(root)
+  await writeFile(join(root, 'source.js'), 'module.exports = 1\n')
+  const workspace = project.workspaces[0]
+  const base = await store.snapshot(workspace, 'base')
+  const occupied = join(tmp, 'occupied')
+  await mkdir(occupied)
+  await writeFile(join(occupied, 'keep.txt'), 'user contents')
+  await assert.rejects(store.fork(workspace.id, occupied, base, 'occupied'))
+  assert.equal(await readFile(join(occupied, 'keep.txt'), 'utf8'), 'user contents')
+  const nested = join(root, 'nested')
+  await mkdir(nested)
+  await assert.rejects(store.fork(workspace.id, nested, base, 'nested'))
+  assert.deepEqual(await readdir(nested), [])
+  const directory = join(tmp, 'real chosen directory')
+  const link = join(tmp, 'chosen link')
+  await mkdir(directory)
+  await symlink(directory, link)
+  await assert.rejects(store.fork(workspace.id, link, base, 'link'))
+  assert.deepEqual(await readdir(directory), [])
+  assert.equal((await store.listProjects())[0].workspaces.length, 1)
 })

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import type { Block } from './library'
-import type { Card } from './types'
+import { cardTitle, type Card } from './types'
 import SafeMarkdown from './SafeMarkdown.vue'
 
 const props = withDefaults(defineProps<{ blocks: Block[]; selectedId?: string; selectedBlockId?: string; documentName: string; title?: string; rootLabel?: string; commits?: Record<string, string> }>(), {
@@ -203,7 +203,7 @@ watch(() => props.documentName, async () => { focused.value = ''; await zoom(1, 
             @focus="focused=node.key" @keydown="navigate($event,node)"
             @click="node.card ? emit('select',node.card.id) : emit('read',node.block.id)">
             <template v-if="node.card">
-              <span class="node-question"><SafeMarkdown inline :text="summary(node.card.question) || '未命名提问'" /></span>
+              <span class="node-question" :title="node.card.question"><template v-if="node.card.studyContext?.title?.trim()">{{ cardTitle(node.card) }}</template><SafeMarkdown v-else inline :text="summary(node.card.question) || '未命名提问'" /></span>
               <span class="node-answer"><SafeMarkdown inline :text="node.card.loading ? '正在回答…' : summary(node.card.editedAnswer ?? node.card.answer) || '暂无回答'" /></span>
               <small v-if="commits?.[node.card.id]" class="node-commit">{{ commits[node.card.id].slice(0, 8) }}</small>
             </template>
