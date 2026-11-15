@@ -4,6 +4,18 @@ Rove explores a graph-based way to work with AI. Start from a question, follow a
 
 Rove brings learning and coding into one macOS application. Learning mode helps you study PDFs, textbooks, and problem sets. Coding mode connects branching conversations to a local Git project and DeepSeek Harness (dsh). A map holds your questions and their relationships, while a side reader displays source material, answers, code, and changes.
 
+## Branching exploration
+
+A linear harness carries one conversation forward. Rove lets you branch from any turn, revisit earlier nodes, and continue along a different path.
+
+![Architecture sketch comparing a linear harness with Rove's branching exploration and selected ancestor context](docs/images/rove-architecture.png)
+
+The highlighted path illustrates ancestor-based context selection. Dashed links represent planned explicit references across branches. This diagram describes the context design; see [Project direction](#project-direction) for implementation status.
+
+[View the SVG diagram](docs/images/rove-architecture.svg)
+
+## App preview
+
 ![Rove showing branching questions and a mathematical explanation in the side reader](docs/images/rove-desktop.jpg)
 
 Rove is an early prototype. The current interface and default tutoring prompts are in Chinese.
