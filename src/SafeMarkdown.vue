@@ -141,15 +141,15 @@ export default defineComponent({
 .folio-markdown :where(ol,ul) { padding-inline-start: 1.65em; }
 .folio-markdown li > p { margin: .25em 0; }
 .folio-markdown blockquote { padding-inline-start: 1em; border-inline-start: 2px solid currentColor; }
-.folio-markdown hr { margin: 1em 0; border: 0; border-top: 1px solid #e4ddec; }
+.folio-markdown hr { margin: 1em 0; border: 0; border-top: 1px solid var(--rove-line); }
 .folio-markdown code, .folio-math-verbatim { font: .91em ui-monospace, monospace; }
 .folio-markdown pre, .folio-table, .folio-math-block { max-width: 100%; overflow-x: auto; }
-.folio-markdown pre { padding: .65em .8em; background: #f4f1f8; border-radius: 5px; white-space: pre; }
+.folio-markdown pre { padding: .65em .8em; background: var(--rove-rail); border-radius: 5px; white-space: pre; }
 .folio-table table { border-collapse: collapse; }
-.folio-table :is(td,th) { padding: .3em .65em; border: 1px solid #e4ddec; text-align: start; }
+.folio-table :is(td,th) { padding: .3em .65em; border: 1px solid var(--rove-line); text-align: start; }
 .folio-math-block { display: block; padding: .1em 0; margin: .5em 0; overflow-y: hidden; }
 .folio-math-block > .katex-display { margin: .25em 0; }
 .folio-math-block .katex-display > .katex { text-align: left; }
 .folio-math-inline .katex, .folio-math-block .katex { font-size: 1.08em; }
-.folio-source { padding: 0 .14em; border: 0; font: inherit; color: var(--rove-accent, #80649f); background: transparent; text-decoration: underline; text-underline-offset: .15em; }
+.folio-source { padding: 0 .14em; border: 0; font: inherit; color: var(--rove-accent-strong); background: transparent; text-decoration: underline; text-underline-offset: .15em; }
 </style>

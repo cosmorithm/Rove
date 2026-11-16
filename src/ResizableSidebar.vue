@@ -168,5 +168,5 @@ onBeforeUnmount(() => {
 .sidebar-left > .resize-handle { right: -6px; }
 .sidebar-right > .resize-handle { left: -6px; }
 .resize-handle::after { content: ''; position: absolute; top: 0; bottom: 0; width: 2px; left: 5px; background: transparent; }
-.resize-handle:hover::after,.resize-handle:focus-visible::after,.is-resizing > .resize-handle::after { background: #a18aba; }
+.resize-handle:hover::after,.resize-handle:focus-visible::after,.is-resizing > .resize-handle::after { background: var(--rove-accent-strong); }
 </style>

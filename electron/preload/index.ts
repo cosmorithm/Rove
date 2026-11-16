@@ -1,10 +1,14 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import type { CodingBridge, CodeProgress } from '../../src/codingTypes'
+import type { AIConfigDraft } from '../../src/aiSettingsTypes'
 import type { StudyContextBridge } from '../../src/studyContextTypes'
 
 contextBridge.exposeInMainWorld('studyBridge', {
   openPdf: () => ipcRenderer.invoke('pdf:open'),
   getAIConfig: () => ipcRenderer.invoke('ai:config'),
+  saveAIConfig: (input: AIConfigDraft) => ipcRenderer.invoke('ai:save-config', input),
+  listAIModels: (input: AIConfigDraft) => ipcRenderer.invoke('ai:list-models', input),
+  testAIConfig: (input: AIConfigDraft) => ipcRenderer.invoke('ai:test-config', input),
   showEnvFile: () => ipcRenderer.invoke('ai:show-env'),
   ask: ({ question, context }: { question: string; context: string }) => ipcRenderer.invoke('ai:ask', { question, context })
 })

@@ -17,9 +17,9 @@ const emit = defineEmits<{ 'update:modelValue': [value: 'chat' | 'coding'] }>()
   gap: 3px;
   margin: 0 0 18px;
   padding: 3px;
-  border: 1px solid #e3d9eb;
+  border: 1px solid var(--rove-line);
   border-radius: 9px;
-  background: #e9e4f1;
+  background: var(--rove-accent-soft);
 }
 .workspace-modes button {
   flex: 1;
@@ -27,17 +27,17 @@ const emit = defineEmits<{ 'update:modelValue': [value: 'chat' | 'coding'] }>()
   border: 1px solid transparent;
   border-radius: 6px;
   background: transparent;
-  color: #8d8296;
+  color: var(--rove-accent-strong);
   font: inherit;
-  font-size: 11px;
-  font-weight: 500;
+  font-size: calc(11px * var(--rove-font-scale, 1));
+  font-weight: clamp(400, calc(var(--rove-font-weight, 450) + 50), 650);
 }
-.workspace-modes button:hover { color: #5b5165; }
+.workspace-modes button:hover { color: var(--rove-accent-strong); }
 .workspace-modes button[aria-pressed=true] {
-  border-color: #dfd5ea;
-  background: white;
-  color: #554c5e;
-  box-shadow: 0 1px 3px #2e28340a;
+  border-color: var(--rove-line);
+  background: var(--rove-surface);
+  color: var(--rove-accent-strong);
+  box-shadow: 0 1px 3px color-mix(in srgb, var(--rove-text) 3.9%, transparent);
 }
 .workspace-modes button:focus-visible { outline: 2px solid var(--rove-accent); outline-offset: 2px; }
 </style>

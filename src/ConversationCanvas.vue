@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { inject, type Ref, computed, nextTick, onMounted, ref, watch } from 'vue'
 import type { Block } from './library'
 import { answerText, cardTitle, type Card } from './types'
 import SafeMarkdown from './SafeMarkdown.vue'
+import type { AppearanceSettings } from './appearance'
 
 const props = withDefaults(defineProps<{ blocks: Block[]; selectedId?: string; selectedBlockId?: string; documentName: string; title?: string; rootLabel?: string; commits?: Record<string, string> }>(), {
   title: '对话地图', rootLabel: '话题'
@@ -12,7 +13,7 @@ const scroller = ref<HTMLElement>()
 const scale = ref(1)
 const focused = ref('')
 const nodeButtons = new Map<string, HTMLButtonElement>()
-const cardWidth = 244, cardHeight = 124, chapterWidth = 194, chapterHeight = 94
+const appearance = inject<Ref<AppearanceSettings> | undefined>('rove-appearance', undefined)
 const columnGap = 56, rowGap = 30, margin = 40
 
 function chapterTitle(block: Block) {
@@ -32,6 +33,9 @@ interface MapNode {
 }
 
 const graph = computed(() => {
+  const fontScale = (appearance?.value.fontSize ?? 15) / 14
+  const cardWidth = Math.ceil(244 * fontScale), cardHeight = Math.ceil(124 * fontScale)
+  const chapterWidth = Math.ceil(194 * fontScale), chapterHeight = Math.ceil(94 * fontScale)
   const nodes: MapNode[] = []
   const links: { key: string; path: string; child: string }[] = []
   let top = margin, width = 0, bottom = 0, emptyColumn = 0
@@ -230,8 +234,8 @@ watch(() => props.documentName, async () => { focused.value = ''; await zoom(1, 
   min-height: 0;
   min-width: 0;
   height: 100%;
-  color: var(--rove-text, #383342);
-  background: var(--rove-canvas, #f8f7fc);
+  color: var(--rove-text);
+  background: var(--rove-canvas);
 }
 .canvas-bar {
   position: relative;
@@ -243,7 +247,7 @@ watch(() => props.documentName, async () => { focused.value = ''; await zoom(1, 
   flex: none;
   gap: 10px 16px;
   padding: 20px 26px 12px;
-  background: var(--rove-canvas, #f8f7fc);
+  background: var(--rove-canvas);
 }
 .canvas-location, .canvas-tools, .zoom-tools, .canvas-navigation {
   display: flex;
@@ -252,23 +256,26 @@ watch(() => props.documentName, async () => { focused.value = ''; await zoom(1, 
 .canvas-location { flex: 1; min-width: 0; }
 .canvas-location h2 {
   margin: 0;
-  color: var(--rove-muted, #82778e);
-  font-size: 12px;
-  font-weight: 500;
+  color: var(--rove-muted);
+  font-size: calc(12px * var(--rove-font-scale, 1));
+  font-weight: clamp(400, calc(var(--rove-font-weight, 450) + 50), 650);
   line-height: 1.5;
   letter-spacing: .02em;
 }
 .canvas-tools { gap: 8px; }
 .canvas-bar button, .canvas-navigation button {
-  border: 1px solid var(--rove-line, #e8e2ee);
+  border: 1px solid var(--rove-line);
   border-radius: 8px;
-  background: var(--rove-surface, #fff);
-  color: #5f5469;
-  font: 500 12px/1.4 -apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif;
+  background: var(--rove-surface);
+  color: var(--rove-accent-strong);
+  font-family: var(--rove-font-family);
+  font-size: calc(12px * var(--rove-font-scale, 1));
+  line-height: 1.4;
+  font-weight: clamp(400, calc(var(--rove-font-weight, 450) + 50), 650);
   cursor: pointer;
   transition: background .15s ease, border-color .15s ease, box-shadow .15s ease;
 }
-.canvas-bar button:hover, .canvas-navigation button:hover { background: #f3eff9; }
+.canvas-bar button:hover, .canvas-navigation button:hover { background: var(--rove-rail); }
 .canvas-bar button:disabled, .canvas-navigation button:disabled { opacity: .35; cursor: default; }
 .canvas-bar .new-question {
   display: inline-flex;
@@ -278,19 +285,19 @@ watch(() => props.documentName, async () => { focused.value = ''; await zoom(1, 
   min-height: 32px;
   padding: 5px 12px 5px 9px;
   color: #fff;
-  border-color: var(--rove-accent, #80649f);
-  background: var(--rove-accent-strong, #756095);
-  box-shadow: 0 1px 2px #2a252f16, inset 0 1px 0 #ffffff1a;
+  border-color: var(--rove-accent);
+  background: var(--rove-accent-strong);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--rove-text) 8.6%, transparent), inset 0 1px 0 color-mix(in srgb, var(--rove-surface) 10.2%, transparent);
 }
-.new-question span { font-size: 17px; font-weight: 400; line-height: 1; }
-.canvas-bar .new-question:hover { background: #6f558c; border-color: #6f558c; }
+.new-question span { font-size: calc(17px * var(--rove-font-scale, 1)); font-weight: var(--rove-font-weight, 450); line-height: 1; }
+.canvas-bar .new-question:hover { background: var(--rove-accent-strong); border-color: var(--rove-accent); }
 .canvas-scroll, .canvas-empty {
   overflow: auto;
   flex: 1;
   min-height: 0;
   min-width: 0;
   overscroll-behavior: contain;
-  background-image: radial-gradient(#bab1c277 .65px, transparent .85px);
+  background-image: radial-gradient(color-mix(in srgb, var(--rove-muted) 28%, transparent) .65px, transparent .85px);
   background-size: 24px 24px;
   background-position: 12px 12px;
 }
@@ -303,10 +310,10 @@ watch(() => props.documentName, async () => { focused.value = ''; await zoom(1, 
   overflow: visible;
   pointer-events: none;
   fill: none;
-  stroke: #d1c6dd;
+  stroke: color-mix(in srgb, var(--rove-accent) 35%, var(--rove-line));
   stroke-width: 1.4;
 }
-.canvas-edges .current { stroke: #a18aba; stroke-width: 1.8; }
+.canvas-edges .current { stroke: var(--rove-accent); stroke-width: 1.8; }
 .canvas-node {
   position: absolute;
   box-sizing: border-box;
@@ -317,19 +324,19 @@ watch(() => props.documentName, async () => { focused.value = ''; await zoom(1, 
   min-width: 0;
   padding: 16px 18px;
   text-align: left;
-  color: var(--rove-text, #383342);
-  border: 1px solid #e0d5ea;
+  color: var(--rove-text);
+  border: 1px solid var(--rove-line);
   border-radius: 13px;
-  background: var(--rove-surface, #fff);
-  box-shadow: 0 2px 3px #2f293403, 0 6px 14px #2f293405;
+  background: var(--rove-surface);
+  box-shadow: 0 2px 3px color-mix(in srgb, var(--rove-text) 1.2%, transparent), 0 6px 14px color-mix(in srgb, var(--rove-text) 2%, transparent);
   cursor: pointer;
   transition: border-color .15s ease, box-shadow .15s ease, background .15s ease;
 }
-.canvas-node:hover { border-color: #baa9ce; box-shadow: 0 3px 5px #2f293406, 0 8px 20px #2f29340a; }
+.canvas-node:hover { border-color: var(--rove-accent); box-shadow: 0 3px 5px color-mix(in srgb, var(--rove-text) 2.4%, transparent), 0 8px 20px color-mix(in srgb, var(--rove-text) 3.9%, transparent); }
 .canvas-node[aria-current] {
-  background: #fefcff;
-  border-color: var(--rove-accent, #80649f);
-  box-shadow: 0 0 0 3px #80649f12, 0 5px 18px #3a334110;
+  background: var(--rove-surface);
+  border-color: var(--rove-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--rove-accent) 7.1%, transparent), 0 5px 18px color-mix(in srgb, var(--rove-text) 6.3%, transparent);
 }
 .exchange-node::before, .has-children::after {
   content: '';
@@ -337,15 +344,15 @@ watch(() => props.documentName, async () => { focused.value = ''; await zoom(1, 
   top: calc(50% - 3px);
   width: 6px;
   height: 6px;
-  border: 1px solid #d1c6dd;
+  border: 1px solid var(--rove-line);
   border-radius: 50%;
-  background: var(--rove-surface, #fff);
+  background: var(--rove-surface);
 }
 .exchange-node::before { left: -4px; }
 .has-children::after { right: -4px; }
-.canvas-node[aria-current]::before, .canvas-node[aria-current]::after { border-color: #9577b5; background: #b49ecb; }
+.canvas-node[aria-current]::before, .canvas-node[aria-current]::after { border-color: var(--rove-accent); background: var(--rove-accent-strong); }
 .canvas-node:focus-visible, .canvas-bar button:focus-visible, .canvas-navigation button:focus-visible {
-  outline: 2px solid var(--rove-accent, #80649f);
+  outline: 2px solid var(--rove-accent);
   outline-offset: 3px;
 }
 .node-question, .node-answer {
@@ -355,27 +362,27 @@ watch(() => props.documentName, async () => { focused.value = ''; await zoom(1, 
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
 }
-.node-question { color: #3a3440; font-size: 13px; font-weight: 600; line-height: 1.5; letter-spacing: -.01em; }
-.node-answer { color: #81758c; font-size: 12px; font-weight: 400; line-height: 1.55; }
-.node-commit { color: #84788f; font: 10px/1.3 ui-monospace, SFMono-Regular, monospace; }
+.node-question { color: var(--rove-text); font-size: calc(13px * var(--rove-font-scale, 1)); font-weight: 600; line-height: 1.5; letter-spacing: -.01em; }
+.node-answer { color: var(--rove-secondary); font-size: calc(12px * var(--rove-font-scale, 1)); font-weight: var(--rove-font-weight, 450); line-height: 1.55; }
+.node-commit { color: var(--rove-secondary); font: calc(11px * var(--rove-font-scale, 1))/1.3 ui-monospace, SFMono-Regular, monospace; }
 .canvas-node:has(.node-commit) .node-question { -webkit-line-clamp: 1; }
-.is-loading .node-answer { color: var(--rove-accent, #80649f); }
+.is-loading .node-answer { color: var(--rove-accent); }
 .chapter-node {
   padding: 16px 24px 16px 18px;
-  color: #59466e;
-  background: #eee8f7;
-  border-color: #ded3ec;
-  box-shadow: 0 2px 5px #45325606, 0 7px 18px #45325606;
+  color: var(--rove-text);
+  background: var(--rove-accent-soft);
+  border-color: var(--rove-line);
+  box-shadow: 0 2px 5px color-mix(in srgb, var(--rove-accent) 2.4%, transparent), 0 7px 18px color-mix(in srgb, var(--rove-accent) 2.4%, transparent);
 }
-.chapter-node:hover { background: #e8e0f3; border-color: #cbbbdf; }
+.chapter-node:hover { background: var(--rove-accent-soft); border-color: var(--rove-accent); }
 .chapter-node[aria-current] {
-  background: #eee8f7;
-  border-color: #ae94c7;
-  box-shadow: 0 0 0 3px #a38bbb16, 0 6px 20px #4532560b;
+  background: var(--rove-accent-soft);
+  border-color: var(--rove-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--rove-accent) 8.6%, transparent), 0 6px 20px color-mix(in srgb, var(--rove-accent) 4.3%, transparent);
 }
-.chapter-node .node-question { color: #59466e; font-size: 14px; line-height: 1.45; }
-.chapter-label { color: #9b87b0; font-size: 10px; line-height: 1; font-weight: 500; }
-.chapter-read { position: absolute; right: 12px; top: 11px; color: #9b87b0; font-size: 14px; }
+.chapter-node .node-question { color: var(--rove-text); font-size: calc(14px * var(--rove-font-scale, 1)); line-height: 1.45; }
+.chapter-label { color: var(--rove-secondary); font-size: calc(11px * var(--rove-font-scale, 1)); line-height: 1; font-weight: clamp(400, calc(var(--rove-font-weight, 450) + 50), 650); }
+.chapter-read { position: absolute; right: 12px; top: 11px; color: var(--rove-secondary); font-size: calc(14px * var(--rove-font-scale, 1)); }
 .canvas-navigation {
   position: absolute;
   z-index: 3;
@@ -383,18 +390,18 @@ watch(() => props.documentName, async () => { focused.value = ''; await zoom(1, 
   left: 22px;
   gap: 1px;
   padding: 4px;
-  border: 1px solid #e0d5ea;
+  border: 1px solid var(--rove-line);
   border-radius: 10px;
-  background: #ffffffed;
+  background: color-mix(in srgb, var(--rove-surface) 92.9%, transparent);
   backdrop-filter: blur(14px);
-  box-shadow: 0 2px 5px #322c3705, 0 5px 16px #322c3708;
+  box-shadow: 0 2px 5px color-mix(in srgb, var(--rove-text) 2%, transparent), 0 5px 16px color-mix(in srgb, var(--rove-text) 3.1%, transparent);
 }
 .zoom-tools { gap: 1px; }
 .canvas-navigation button { height: 28px; padding: 0 8px; border: 0; border-radius: 6px; background: transparent; }
-.zoom-tools button { min-width: 26px; font-size: 16px; font-weight: 400; }
-.zoom-tools .zoom-value { min-width: 46px; color: #62586a; font-variant-numeric: tabular-nums; font-size: 11px; }
-.canvas-navigation .fit-tool { margin-left: 4px; padding-left: 12px; border-left: 1px solid #e6deee; border-radius: 0 5px 5px 0; font-size: 11px; }
-.canvas-empty { display: grid; place-items: center; padding: 30px; color: var(--rove-muted, #82778e); font-size: 13px; }
+.zoom-tools button { min-width: 26px; font-size: calc(16px * var(--rove-font-scale, 1)); font-weight: var(--rove-font-weight, 450); }
+.zoom-tools .zoom-value { min-width: 46px; color: var(--rove-secondary); font-variant-numeric: tabular-nums; font-size: calc(11px * var(--rove-font-scale, 1)); }
+.canvas-navigation .fit-tool { margin-left: 4px; padding-left: 12px; border-left: 1px solid var(--rove-line); border-radius: 0 5px 5px 0; font-size: calc(11px * var(--rove-font-scale, 1)); }
+.canvas-empty { display: grid; place-items: center; padding: 30px; color: var(--rove-muted); font-size: calc(13px * var(--rove-font-scale, 1)); }
 .canvas-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 @media (max-width: 1080px) {
   .canvas-bar { padding: 16px 18px 10px; }

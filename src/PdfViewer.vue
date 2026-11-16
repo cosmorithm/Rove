@@ -293,19 +293,19 @@ onBeforeUnmount(closePdf)
 </template>
 
 <style scoped>
-.pdf-viewer { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; height: 100%; color: #475448; background: #e9ebe6; overflow: hidden; }
-.pdf-toolbar { display: flex; flex: none; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 4px 10px; padding: 7px 14px; background: #fcfcfa; border-bottom: 1px solid #dce1d9; font-size: 12px; }
+.pdf-viewer { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; height: 100%; color: var(--rove-text); background: var(--rove-accent-soft); overflow: hidden; }
+.pdf-toolbar { display: flex; flex: none; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 4px 10px; padding: 7px 14px; background: var(--rove-surface); border-bottom: 1px solid var(--rove-line); font-size: calc(12px * var(--rove-font-scale, 1)); }
 .pdf-pages, .pdf-zoom { display: flex; align-items: center; gap: 4px; margin: 0; }
 .pdf-toolbar button, .pdf-pages input { border: 1px solid transparent; border-radius: 5px; color: inherit; background: transparent; height: 27px; }
-.pdf-toolbar button { min-width: 26px; font: inherit; font-size: 17px; line-height: 1; cursor: pointer; }
-.pdf-toolbar button:hover:not(:disabled) { background: #e9eee8; }
+.pdf-toolbar button { min-width: 26px; font: inherit; font-size: calc(17px * var(--rove-font-scale, 1)); line-height: 1; cursor: pointer; }
+.pdf-toolbar button:hover:not(:disabled) { background: var(--rove-accent-soft); }
 .pdf-toolbar button:disabled { opacity: .3; }
-.pdf-toolbar .zoom-value { font-size: 12px; min-width: 45px; }
-.pdf-pages input { width: 40px; border-color: #d9ded6; background: white; text-align: center; font: inherit; }
-.pdf-message { margin: 9px 16px; font-size: 12px; }
+.pdf-toolbar .zoom-value { font-size: calc(12px * var(--rove-font-scale, 1)); min-width: 45px; }
+.pdf-pages input { width: 40px; border-color: var(--rove-line); background: var(--rove-surface); text-align: center; font: inherit; }
+.pdf-message { margin: 9px 16px; font-size: calc(12px * var(--rove-font-scale, 1)); }
 .pdf-error { color: #a14d3d; }
 .pdf-scroll { flex: 1; min-width: 0; min-height: 0; overflow: auto; padding: 16px clamp(8px, 1.3vw, 22px) 24px; overscroll-behavior: contain; }
-.pdf-sheet { position: relative; width: max-content; margin-inline: auto; background: white; box-shadow: 0 1px 8px #28362926; }
+.pdf-sheet { position: relative; width: max-content; margin-inline: auto; background: white; box-shadow: 0 1px 8px color-mix(in srgb, var(--rove-text) 14.9%, transparent); }
 .pdf-sheet canvas { display: block; }
 .pdf-sheet .textLayer { position: absolute; inset: 0; cursor: text; }
 </style>

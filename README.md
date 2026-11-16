@@ -30,7 +30,7 @@ Rove is an early prototype. The current interface is primarily in Chinese; Chat 
 
 You can select text or formulas from an answer, save excerpts, and use them in follow-up questions. Answers support Markdown and LaTeX rendering. In Chat, leaf nodes support AI polish and manual revisions, with every completed version available to revisit. Once a node has children, its active answer is fixed. Follow-ups retain the chosen parent answer version and ancestor sources.
 
-The map supports zoom, fit-to-view, and keyboard navigation. Both the library sidebar and the reading sidebar have draggable dividers, remember their widths, and return to their default widths on double-click.
+The map supports zoom, fit-to-view, and keyboard navigation. Both the library sidebar and the reading sidebar have draggable dividers, remember their widths, and return to their default widths on double-click. **Appearance settings** offers lavender, paper, blue, and sage palettes, adjustable text size, font family, weight, and contrast. Changes apply to both workspaces immediately and are remembered locally. The default uses darker text and a larger reading size.
 
 ## Chat context
 
@@ -103,9 +103,12 @@ npm run dev
 
 ## Configure a model
 
-Edit `.env` in the project root with your provider's base URL, model ID, and API key.
+Open **AI settings**, choose a provider, enter your API key, and save. Rove prefills the provider's base URL and a model, supports fetching the available model list, and can test the current configuration before saving. Presets include DeepSeek, OpenAI, Anthropic Claude, Google Gemini, and Alibaba Qwen. Custom OpenAI-compatible endpoints and manually entered model IDs are also supported.
+
+Settings are saved in the project's `.env` and shared by Chat, polish, and summary generation. Existing `.env` settings remain readable. You can also edit the file directly.
 
 ```dotenv
+ROVE_AI_PROVIDER=openai
 OPENAI_BASE_URL=https://api.openai.com/v1
 OPENAI_MODEL=your-model-id
 OPENAI_API_KEY=your-api-key
@@ -113,13 +116,14 @@ OPENAI_API_KEY=your-api-key
 
 | Variable | Purpose |
 | --- | --- |
-| `OPENAI_BASE_URL` | API base URL. Rove appends `/chat/completions` when making a request. |
+| `ROVE_AI_PROVIDER` | Selected provider. Existing configurations infer it from the service address. |
+| `OPENAI_BASE_URL` | API base URL. Rove uses the selected provider protocol, including the native Claude Messages endpoint. |
 | `OPENAI_MODEL` | Model ID accepted by the configured provider. |
 | `OPENAI_API_KEY` | Authentication key required by the provider. A local service may allow an empty value. |
 
 Use HTTPS for remote providers. HTTP is supported for `localhost`, `127.0.0.1`, and `[::1]`.
 
-The **AI settings** button can reveal `.env` in Finder. Save your changes and return to Rove to refresh the displayed configuration. Each model request reads the configuration again.
+Saved API keys are masked in the settings dialog. Saving updates `.env` immediately, and each model request reads the current configuration again. Connection testing sends a short test message to the selected service.
 
 For a packaged build, place `.env` beside `Rove.app`.
 

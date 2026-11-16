@@ -1,6 +1,8 @@
+import { createAIRequest } from './aiTransport.ts'
 import type { StudySummaryLevel, StudyTurnSource } from '../../src/studyContextTypes'
 
 interface StudyModelConfig {
+  protocol?: 'openai' | 'anthropic'
   publicConfig: { model: string; configured: boolean }
   endpoint: URL
   apiKey: string
@@ -124,11 +126,12 @@ function parseLevels(content: unknown, key: string) {
 }
 
 export function createStudySummarizer(options: StudySummarizerOptions) {
-  const request = options.fetch ?? globalThis.fetch
+  const fetcher = options.fetch ?? globalThis.fetch
   const timeoutMs = options.timeoutMs ?? 90_000
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) throw new Error('摘要请求超时时间无效。')
   return async (source: StudyTurnSource): Promise<StudySummaryResult> => {
     const config = await options.readConfig()
+    const request = createAIRequest(config, fetcher)
     if (!config.publicConfig.configured || !config.publicConfig.model.trim()) {
       throw new SummaryError('请先配置对话模型，再生成 L0/L1/L2 摘要缓存。')
     }

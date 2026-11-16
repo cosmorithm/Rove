@@ -6,6 +6,8 @@ import ConversationCanvas from './ConversationCanvas.vue'
 import ResizableSidebar from './ResizableSidebar.vue'
 import SafeMarkdown from './SafeMarkdown.vue'
 import StudyContextPanel from './StudyContextPanel.vue'
+import AISettingsDialog from './AISettingsDialog.vue'
+import type { AIConfigPublic } from './aiSettingsTypes'
 import { selectedAnswerText } from './selectedText'
 import { buildLecturePrompt, parseLecture } from './lectureFormat'
 import { restoreLectureSections } from './lectureSections'
@@ -46,7 +48,7 @@ const generating = ref(false)
 const importing = ref(false)
 const error = ref('')
 const settingsOpen = ref(false)
-const aiConfig = ref({ baseUrl: '', model: '', configured: false })
+const aiConfig = ref<AIConfigPublic>({ baseUrl: '', model: '', configured: false, provider: 'deepseek', hasApiKey: false })
 const ready = computed(() => aiConfig.value.configured)
 const configError = ref('')
 let pendingConfig: Promise<typeof aiConfig.value> | undefined
@@ -199,17 +201,15 @@ function readAIConfig() {
     configError.value = ''
     return config
   }).catch(reason => {
-    aiConfig.value = { baseUrl: '', model: '', configured: false }
+    aiConfig.value = { baseUrl: '', model: '', configured: false, provider: 'deepseek', hasApiKey: false }
     configError.value = reason instanceof Error ? reason.message : '读取 .env 失败。'
     throw reason
   }).finally(() => { pendingConfig = undefined })
   return pendingConfig
 }
 function refreshAIConfig() { void readAIConfig().catch(() => {}) }
-async function showEnvFile() {
-  try { await window.studyBridge.showEnvFile() }
-  catch (reason) { configError.value = reason instanceof Error ? reason.message : '无法在 Finder 中显示 .env。' }
-}
+function applyAIConfig(config: AIConfigPublic) { aiConfig.value = config; configError.value = '' }
+
 watch(settingsOpen, open => { if (open) refreshAIConfig() })
 watch(library, () => {
   try { saveLibrary(library.value) }
@@ -633,7 +633,7 @@ function removeCard(card: Card) {
             </button>
           </nav>
         </div>
-        <div class="sidebar-bottom"><button class="settings-link" @click="settingsOpen=true">⚙ <span>AI 设置</span><i>{{ ready ? '已配置' : '未配置' }}</i></button></div>
+        <div class="sidebar-bottom"><button class="settings-link" @click="settingsOpen=true">⚙ <span>AI 设置</span><i>{{ ready ? '已配置' : '未配置' }}</i></button><slot name="appearance" /></div>
       </aside>
     </ResizableSidebar>
     <main class="main">
@@ -715,17 +715,7 @@ function removeCard(card: Card) {
         </ResizableSidebar>
       </div>
     </main>
-    <div v-if="settingsOpen" class="modal-backdrop" @click.self="settingsOpen=false" @keydown.esc="settingsOpen=false">
-      <section class="modal" role="dialog" aria-modal="true" aria-labelledby="ai-settings-title">
-        <div class="modal-head"><h2 id="ai-settings-title">AI 设置</h2><button type="button" aria-label="关闭 AI 设置" @click="settingsOpen=false">×</button></div>
-        <p>在 Rove 项目根目录的 <code>.env</code> 中填写服务地址、模型名称和所需密钥。保存后回到 Rove，配置会自动刷新。</p>
-        <label>服务地址<input readonly :value="aiConfig.baseUrl || '未填写'" /></label>
-        <label>模型名称<input readonly :value="aiConfig.model || '未填写'" /></label>
-        <p v-if="configError" role="alert">{{ configError }}</p>
-        <div class="privacy-note">发送消息、生成摘要或整理资料时，Rove 会将相关对话和所选资料发送给此模型服务。</div>
-        <button type="button" class="save-settings" @click="showEnvFile">在 Finder 中显示 .env</button>
-      </section>
-    </div>
+    <AISettingsDialog v-if="settingsOpen" :config="aiConfig" @close="settingsOpen=false" @saved="applyAIConfig" />
   </div>
 </template>
 
@@ -736,20 +726,20 @@ function removeCard(card: Card) {
   border-color: transparent;
   background: transparent;
   box-shadow: none;
-  color: #83778e;
-  font-size: 11px;
-  font-weight: 400;
+  color: var(--rove-secondary);
+  font-size: calc(11px * var(--rove-font-scale, 1));
+  font-weight: var(--rove-font-weight, 450);
 }
 .library-sidebar .import-reference:hover {
-  border-color: #e0d5ea;
-  background: #eee8f7;
-  color: #5e5368;
+  border-color: var(--rove-accent);
+  background: var(--rove-accent-soft);
+  color: var(--rove-secondary);
 }
 .study-context-controls {
   flex: none;
   padding: 13px 22px;
   border-bottom: 1px solid var(--rove-line);
-  background: #faf8fd;
+  background: var(--rove-surface);
 }
 .study-context-pickers {
   display: flex;
@@ -761,23 +751,23 @@ function removeCard(card: Card) {
   display: flex;
   align-items: center;
   gap: 6px;
-  color: #897e93;
-  font-size: 11px;
+  color: var(--rove-secondary);
+  font-size: calc(11px * var(--rove-font-scale, 1));
 }
 .study-context-pickers input,
 .study-context-pickers select {
   min-width: 0;
   height: 27px;
   padding: 3px 6px;
-  border: 1px solid #e4dcec;
+  border: 1px solid var(--rove-line);
   border-radius: 6px;
-  background: #ffffff;
-  color: #5b5263;
-  font-size: 11px;
+  background: var(--rove-surface);
+  color: var(--rove-text);
+  font-size: calc(11px * var(--rove-font-scale, 1));
 }
 .study-context-pickers input { width: 44px; font-variant-numeric: tabular-nums; }
-.study-context-controls > small { display: block; margin-top: 8px; color: #958b9e; font-size: 10px; line-height: 1.7; }
-.study-context-controls > p { margin: 6px 0 0; color: #84788e; font-size: 10px; line-height: 1.7; }
+.study-context-controls > small { display: block; margin-top: 8px; color: var(--rove-secondary); font-size: calc(11px * var(--rove-font-scale, 1)); line-height: 1.7; }
+.study-context-controls > p { margin: 6px 0 0; color: var(--rove-secondary); font-size: calc(11px * var(--rove-font-scale, 1)); line-height: 1.7; }
 .study-context-budget span { color: #a17a43; }
 @media (max-width: 1100px) {
   .study-context-controls { padding-inline: 16px; }
@@ -785,12 +775,12 @@ function removeCard(card: Card) {
 </style>
 
 <style scoped>
-.wiki-scope { margin: 0 8px 16px; color: var(--rove-muted); font-size: 10px; }
-.wiki-empty { padding: 0 8px; color: var(--rove-muted); font-size: 12px; line-height: 1.8; }
-.wiki-entry { display: block; width: 100%; margin-bottom: 9px; padding: 12px; border: 1px solid var(--rove-line); border-radius: 9px; background: #faf8fe; text-align: left; }
+.wiki-scope { margin: 0 8px 16px; color: var(--rove-muted); font-size: calc(11px * var(--rove-font-scale, 1)); }
+.wiki-empty { padding: 0 8px; color: var(--rove-muted); font-size: calc(12px * var(--rove-font-scale, 1)); line-height: 1.8; }
+.wiki-entry { display: block; width: 100%; margin-bottom: 9px; padding: 12px; border: 1px solid var(--rove-line); border-radius: 9px; background: var(--rove-surface); text-align: left; }
 .wiki-entry:hover { background: var(--rove-accent-soft); }
 .wiki-entry strong,.wiki-entry span,.wiki-entry small { display: block; }
-.wiki-entry strong { margin-bottom: 7px; color: var(--rove-text); font-size: 11px; font-weight: 600; }
-.wiki-entry span { max-height: 7em; overflow: hidden; color: #73677f; font-size: 11px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
-.wiki-entry small { margin-top: 9px; color: var(--rove-accent); font-size: 10px; }
+.wiki-entry strong { margin-bottom: 7px; color: var(--rove-text); font-size: calc(11px * var(--rove-font-scale, 1)); font-weight: 600; }
+.wiki-entry span { max-height: 7em; overflow: hidden; color: var(--rove-secondary); font-size: calc(11px * var(--rove-font-scale, 1)); line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
+.wiki-entry small { margin-top: 9px; color: var(--rove-accent); font-size: calc(11px * var(--rove-font-scale, 1)); }
 </style>
