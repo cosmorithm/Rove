@@ -55,8 +55,8 @@ function source(input: StudyTurnSource): StudyTurnSource {
     ...(input.excerptVersion !== undefined ? { excerptVersion: answerVersion(input.excerptVersion) } : {}),
     ...(input.page !== undefined ? { page: input.page } : {}),
     document: {
-      id: id(input.document.id, '资料编号'), name: text(input.document.name, '资料名称', false, 8192),
-      blockId: id(input.document.blockId, '知识点编号'), title: text(input.document.title, '知识点标题', true, 8192),
+      id: id(input.document.id, '对话或资料编号'), name: text(input.document.name, '对话或资料名称', false, 8192),
+      blockId: id(input.document.blockId, '话题编号'), title: text(input.document.title, '话题标题', true, 8192),
     },
     ...(input.outcome !== undefined ? { outcome: input.outcome } : {}),
   }
@@ -195,10 +195,10 @@ export class StudyContextStore {
   }
   async prepare(input: PrepareStudyContextRequest): Promise<PreparedStudyContext> {
     if (!input || typeof input !== 'object') throw new Error('上下文请求无效。')
-    const nodeId = id(input.nodeId, '对话节点'), documentId = id(input.documentId, '资料编号')
+    const nodeId = id(input.nodeId, '对话节点'), documentId = id(input.documentId, '对话或资料编号')
     const question = text(input.question, '问题', false, 4000)
     const choice = selection(input.selection)
-    const materials = text(input.materials, '学习资料', true)
+    const materials = text(input.materials, '参考内容', true)
     const limit = input.limit ?? maxContext
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > maxContext) throw new Error('上下文长度上限无效。')
     if (!Array.isArray(input.ancestors) || input.ancestors.length > 1000) throw new Error('祖先节点列表无效。')
@@ -206,7 +206,7 @@ export class StudyContextStore {
     const seen = new Set([nodeId])
     for (let i = 0; i < ancestors.length; i++) {
       const item = ancestors[i]
-      if (seen.has(item.nodeId) || item.document.id !== documentId) throw new Error('继承路径包含重复节点或其他资料。')
+      if (seen.has(item.nodeId) || item.document.id !== documentId) throw new Error('继承路径包含重复节点或其他对话、资料。')
       seen.add(item.nodeId)
       if (item.parentId && ancestors[i + 1] && item.parentId !== ancestors[i + 1].nodeId) throw new Error('继承节点没有沿父节点向上排列。')
     }
@@ -258,7 +258,7 @@ export class StudyContextStore {
           omittedNodeIds.push(...chosen.slice(index + 1).map(item => item.nodeId)); break
         }
       }
-      const materialResult = materials && !truncated ? append('【本轮学习资料】\n' + materials) : { includedChars: 0 }
+      const materialResult = materials && !truncated ? append('【本轮参考内容】\n' + materials) : { includedChars: 0 }
       const prepared: PreparedStudyContext = {
         nodeId, documentId, question, context, selection: choice, limit, used: context.length, truncated,
         entries, omittedNodeIds, materialsIncludedChars: materialResult.includedChars, createdAt,

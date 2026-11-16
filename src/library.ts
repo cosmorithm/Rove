@@ -13,6 +13,7 @@ export interface StudyNote {
   name: string
   label: string
   blocks: Block[]
+  kind?: 'chat'
   // A legacy import has no content hash until it is reimported.
   pdfId?: string
   storage?: 'file'
@@ -25,38 +26,43 @@ export interface Library {
 
 const storageKey = 'zhixue-library-v2'
 
-function sample(): StudyNote {
+export function createChat(name = '新对话'): StudyNote {
   return {
-    id: 'sample', name: '从斜率理解梯度下降', label: '示例讲义',
-    blocks: [
-      { id: 'sample-1', title: '为什么要沿着负梯度走？', body: '想象你正在山坡上找最低点。梯度指向当前位置上升最快的方向，负梯度指向相反方向。沿负梯度迈出足够小的一步，通常会使函数值下降。', cards: [] },
-      { id: 'sample-2', title: '一步应该迈多远？', body: '以损失函数 L(w) = w² 为例，在 w = 3 时，导数是 6。若学习率为 0.1，一步更新后 w = 3 − 0.1 × 6 = 2.4，损失从 9 降到 5.76。把学习率换成 2，再算一次，看看损失怎么变。', cards: [] },
-    ],
+    id: crypto.randomUUID(), name: name.trim() || '新对话', label: '对话', kind: 'chat',
+    blocks: [{ id: crypto.randomUUID(), title: '对话起点', body: '', cards: [] }],
   }
 }
 
 export function readLibrary(): Library {
-  const example = sample()
-  const fallback = { active: example.id, notes: [example] }
+  let fresh = false
   try {
-    const saved = JSON.parse(localStorage.getItem(storageKey) || 'null') as Library | null
+    const raw = localStorage.getItem(storageKey)
+    const saved = JSON.parse(raw || 'null') as Library | null
     if (saved?.notes?.length && saved.notes.every(note => typeof note.id === 'string' && Array.isArray(note.blocks))) {
-      if (!saved.notes.some(note => note.id === 'sample')) saved.notes.push(example)
       if (!saved.notes.some(note => note.id === saved.active)) saved.active = saved.notes[0].id
       return saved
     }
-    const previous = JSON.parse(localStorage.getItem('zhixue-prototype-v1') || 'null')
+    const legacy = localStorage.getItem('zhixue-prototype-v1')
+    const previous = JSON.parse(legacy || 'null')
     if (Array.isArray(previous?.lecture) && previous.lecture.length) {
       const id = 'previous'
-      return { active: id, notes: [{id, name: previous.documentName || '上次的讲义', label: previous.documentLabel || '已保存', blocks: previous.lecture}, example] }
+      return { active: id, notes: [{id, name: previous.documentName || '上次的讲义', label: previous.documentLabel || '已保存', blocks: previous.lecture}] }
     }
-  } catch { /* The new session can still be used if storage is unavailable. */ }
+    fresh = raw === null && legacy === null
+  } catch { /* Existing data stays untouched if storage is unavailable or malformed. */ }
+  const chat = createChat()
+  const fallback = { active: chat.id, notes: [chat] }
+  if (fresh) {
+    // A new empty conversation needs stable IDs even before the first message is sent.
+    try { saveLibrary(fallback) } catch { /* It remains usable when local storage is unavailable. */ }
+  }
   return fallback
 }
 
 export function saveLibrary(library: Library) {
   localStorage.setItem(storageKey, JSON.stringify(library, (key, value) => {
-    if (key === 'loading') return false
+    if (key === 'loading' || key === 'chatBusy') return false
+    if (key === 'polishError') return undefined
     if (key === 'cards' || key === 'children') {
       return Array.isArray(value) ? value.map((card: Card) => card.loading ? { ...card, answer: '上次回答已中断，可以继续追问。', loading: false } : card) : value
     }

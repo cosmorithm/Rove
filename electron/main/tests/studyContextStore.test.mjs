@@ -269,3 +269,29 @@ test('pending or failed legacy title backfill leaves cached L1/L2 usable and can
   assert.deepEqual(ready.versions[0].summaries.L1, legacy.versions[0].summaries.L1)
   assert.deepEqual(ready.versions[0].summaries.L2, legacy.versions[0].summaries.L2)
 })
+
+
+test('a general chat turn can start with no PDF, page, excerpt or reference material', async t => {
+  const f = await fixture(t)
+  const chat = { id: 'chat-1', name: '新对话', blockId: 'topic-1', title: '对话起点' }
+  const prepared = await f.store.prepare({
+    nodeId: 'chat-turn-1', documentId: chat.id, question: 'Help me draft a short email.',
+    ancestors: [], selection: { depth: 3, level: 'L1' }, materials: '',
+  })
+  assert.equal(prepared.context, '')
+  assert.deepEqual(prepared.entries, [])
+  assert.equal(prepared.materialsIncludedChars, 0)
+  assert.equal(prepared.truncated, false)
+  assert.equal(f.calls.length, 0, 'an empty conversation does not require ancestor summaries')
+  const saved = await f.store.save({
+    nodeId: 'chat-turn-1', question: prepared.question, answer: 'Here is a concise email draft.',
+    answerVersion: 'original', document: chat, outcome: 'completed',
+  })
+  assert.equal(saved.request.question, prepared.question)
+  assert.equal(saved.request.context, '')
+  assert.equal(saved.versions[0].state, 'ready')
+  assert.equal(saved.versions[0].source.page, undefined)
+  assert.equal(saved.versions[0].source.excerpt, undefined)
+  assert.deepEqual(saved.versions[0].source.document, chat)
+  assert.equal(saved.versions[0].summaries.L0.text, 'chat-turn-1_L0')
+})

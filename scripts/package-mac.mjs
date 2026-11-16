@@ -38,7 +38,7 @@ try {
   for (const [key, value] of Object.entries({
     CFBundleIdentifier: bundleID, CFBundleDisplayName: displayName, CFBundleName: displayName,
     CFBundleVersion: appPackage.version, CFBundleShortVersionString: appPackage.version,
-    LSApplicationCategoryType: 'public.app-category.education',
+    LSApplicationCategoryType: 'public.app-category.productivity',
   })) {
     execFileSync('/usr/bin/plutil', ['-replace', key, '-string', value, plistPath(bundle)])
   }

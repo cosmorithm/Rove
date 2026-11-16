@@ -11,8 +11,10 @@ import { buildLecturePrompt, parseLecture } from './lectureFormat'
 import { restoreLectureSections } from './lectureSections'
 import { readStudyOutline, type StudyOutlineItem } from './studyOutline'
 import type { PDFDocumentProxy } from 'pdfjs-dist'
-import { readLibrary, saveLibrary, loadPdf, type Block } from './library'
+import { createChat, readLibrary, saveLibrary, loadPdf, type Block } from './library'
 import { answerText, cardTitle, type Card, type CardQuestion } from './types'
+import { getAnswerRevisions, getActiveAnswerRevision, getChatAnswerRevision, groundTruthText, selectChatAnswerRevision } from './chatVersions'
+import { polishChatAnswer } from './chatPolish'
 import type { StudyContextSelection, StudyTurnMetadata, StudyTurnSource, StudyTurnVersion } from './studyContextTypes'
 
 type Pdf = { name: string; source: { url: string } | { data: string } }
@@ -21,12 +23,14 @@ const library = ref(readLibrary())
 const note = computed(() => library.value.notes.find(item => item.id === library.value.active) || library.value.notes[0])
 const blocks = computed(() => note.value.blocks)
 const documentName = computed(() => note.value.name)
+const isChat = computed(() => note.value.kind === 'chat')
 const pdf = ref<Pdf | null>(null)
 const pdfViewer = ref<{ extractForLecture(): Promise<Page[]>; goToPage(page: number): void; getCurrentPageText(): Promise<Page> } | null>(null)
-const sidebarTab = ref<'library' | 'outline'>('library')
+const sidebarTab = ref<'library' | 'outline' | 'wiki'>('library')
 const readerOpen = ref(true)
 const readerTab = ref<'content' | 'source'>('content')
 const selectedCardId = ref<string>()
+const selectedView = ref<{ nodeId: string; revisionId: string }>()
 const selectedBlockId = ref(blocks.value[0]?.id || '')
 const selectedBlock = computed(() => blocks.value.find(block => block.id === selectedBlockId.value) || blocks.value[0])
 const outline = ref<StudyOutlineItem[]>([])
@@ -37,7 +41,7 @@ const selection = ref('')
 const draft = ref('')
 const questionInput = ref<HTMLTextAreaElement>()
 const chapterBody = ref<HTMLElement>()
-const hasKnowledge = computed(() => blocks.value.some(block => block.title !== '准备开始学习'))
+const hasKnowledge = computed(() => blocks.value.some(block => block.body.trim()))
 const generating = ref(false)
 const importing = ref(false)
 const error = ref('')
@@ -79,11 +83,14 @@ function sourceKey(source: StudyTurnSource) {
     source.document.id, source.document.name, source.document.blockId, source.document.title, source.outcome || 'completed'])
 }
 function snapshotSource(card: Card, block: Pick<Block, 'id' | 'title'>, document: { id: string; name: string }, parentId?: string,
-  answer = answerText(card), answerVersion: 'original' | 'edited' = card.editedAnswer !== undefined ? 'edited' : 'original'): StudyTurnSource {
+  answer = answerText(card), answerVersion: 'original' | 'edited' = getActiveAnswerRevision(card).kind === 'edit' ? 'edited' : 'original',
+  revisionId = getActiveAnswerRevision(card).id): StudyTurnSource {
+  const revision = getChatAnswerRevision(card, revisionId)
+  const generated = revision?.text === answer && revision.id !== 'original' && revision.id !== 'edited'
   return { nodeId: card.id, parentId, question: card.question, answer, answerVersion,
     excerpt: card.excerpt, excerptVersion: card.excerptVersion, page: card.page,
     document: { ...document, blockId: block.id, title: block.title },
-    outcome: card.demo ? 'demo' : card.answer.startsWith('回答失败：') ? 'failed' : 'completed' }
+    outcome: generated ? 'completed' : card.demo ? 'demo' : answer.startsWith('回答失败：') ? 'failed' : 'completed' }
 }
 function versionFor(metadata: StudyTurnMetadata | null, source: StudyTurnSource) {
   return [...(metadata?.versions || [])].reverse().find(version => sourceKey(version.source) === sourceKey(source))
@@ -96,7 +103,7 @@ function cacheState(card: Card, metadata: StudyTurnMetadata, source: StudyTurnSo
 async function saveTurnCache(card: Card, source: StudyTurnSource, current: () => StudyTurnSource) {
   const key = sourceKey(source)
   cacheSaving.add(key)
-  card.studyContext = { ...card.studyContext, title: undefined, state: 'pending', error: undefined }
+  if (sourceKey(current()) === key) card.studyContext = { ...card.studyContext, title: undefined, state: 'pending', error: undefined }
   try {
     const metadata = await window.studyContextBridge.save(source)
     if (sourceKey(current()) === key) cacheState(card, metadata, source)
@@ -124,7 +131,7 @@ function headingText(title: string) {
   const match = title.match(/^\s*(?:\d+[.、]\s*)?(.+?)\s*[（(]第\s*(\d+)\s*题[）)]$/)
   return match ? '第 ' + match[2] + ' 题 · ' + match[1] : title.replace(/^\d+[.、]\s+/, '')
 }
-function noteLabel(label: string) { return label.replace(/讲义/g, '知识点') }
+function noteLabel(label: string) { return label.replace(/讲义|知识点/g, '资料') }
 function problemNumber(title: string) { return title.match(/第\s*(\d+)\s*题/)?.[1] }
 function pageForBlock(block: Block) {
   const number = problemNumber(block.title)
@@ -242,6 +249,14 @@ async function activate(id: string) {
   }
   if (token === switchToken && !hasKnowledge.value) readerTab.value = 'source'
 }
+async function newChat() {
+  const chat = createChat()
+  library.value.notes.unshift(chat)
+  error.value = ''
+  await activate(chat.id)
+  await nextTick()
+  questionInput.value?.focus()
+}
 onMounted(() => {
   void activate(library.value.active)
   refreshAIConfig()
@@ -262,7 +277,7 @@ async function openPdf() {
       target = {
         id: crypto.randomUUID(), name: result.name.replace(/\.pdf$/i, ''), label: 'PDF 已导入',
         pdfId: result.pdfId, storage: 'file',
-        blocks: [{ id: crypto.randomUUID(), title: '准备开始学习', body: '', cards: [] }]
+        blocks: [{ id: crypto.randomUUID(), title: '资料概览', body: '', cards: [] }]
       }
       library.value.notes.push(target)
     }
@@ -274,7 +289,7 @@ async function openPdf() {
 }
 async function askEngine(question: string, context: string): Promise<{ answer: string; demo: boolean }> {
   const config = await readAIConfig()
-  if (!config.configured) return { answer: '请在 AI 设置中配置模型，再针对这段资料提问。', demo: true }
+  if (!config.configured) return { answer: '请在 AI 设置中配置模型后开始对话。', demo: true }
   return { answer: await window.studyBridge.ask({ question, context }), demo: false }
 }
 async function generateKnowledge() {
@@ -294,7 +309,7 @@ async function generateKnowledge() {
     const count = pageCount.value
     const answer = await window.studyBridge.ask({ question: buildLecturePrompt(), context: full.slice(0, 24000) })
     const sections = parseLecture(answer, count)
-    if (!sections.length) throw new Error('未收到可用的知识点内容。')
+    if (!sections.length) throw new Error('未收到可用的资料内容。')
     const generated: Block[] = sections.map(section => ({ ...section, id: crypto.randomUUID(), cards: [] as Card[] }))
     for (const block of target.blocks) {
       if (!block.cards.length) continue
@@ -303,7 +318,7 @@ async function generateKnowledge() {
       else generated.push({ ...block })
     }
     target.blocks = generated
-    target.label = full.length > 24000 ? 'AI 知识点 · 已截取前 24,000 字' : 'AI 知识点'
+    target.label = full.length > 24000 ? 'AI 资料整理 · 已截取前 24,000 字' : 'AI 资料整理'
     if (target.id === note.value.id) {
       selectedBlockId.value = mapped.value?.block.id || generated[0].id
       if (!mapped.value) selectedCardId.value = undefined
@@ -311,7 +326,7 @@ async function generateKnowledge() {
       readerTab.value = 'content'
     }
   } catch (reason) {
-    if (target.id === note.value.id) error.value = '知识点整理失败：' + (reason instanceof Error ? reason.message : String(reason))
+    if (target.id === note.value.id) error.value = '资料整理失败：' + (reason instanceof Error ? reason.message : String(reason))
   } finally { generating.value = false }
 }
 
@@ -330,10 +345,53 @@ const mapped = computed(() => {
     if (path) return { block, path, card: path[path.length - 1] }
   }
 })
+const wikiEntries = computed(() => {
+  const entries: { card: Card; revisionId: string; text: string; start: number; end: number }[] = []
+  function collect(cards: Card[]) {
+    for (const card of cards) {
+      for (const revision of getAnswerRevisions(card)) {
+        for (const approval of revision.approvals ?? []) {
+          if (Number.isSafeInteger(approval.start) && Number.isSafeInteger(approval.end) &&
+              approval.start >= 0 && approval.end > approval.start &&
+              revision.text.slice(approval.start, approval.end) === approval.text && approval.text.trim()) {
+            entries.push({ card, revisionId: revision.id, text: approval.text, start: approval.start, end: approval.end })
+          }
+        }
+      }
+      collect(card.children)
+    }
+  }
+  for (const block of blocks.value) collect(block.cards)
+  return entries
+})
+function wikiContext() {
+  const sections: string[] = []
+  function collect(cards: Card[]) {
+    for (const card of cards) {
+      const text = groundTruthText(card)
+      if (text) sections.push(text)
+      collect(card.children)
+    }
+  }
+  for (const block of blocks.value) collect(block.cards)
+  return sections.join('\n\n')
+}
+function openWikiEntry(entry: typeof wikiEntries.value[number]) {
+  selectMappedCard(entry.card.id)
+  selectedView.value = { nodeId: entry.card.id, revisionId: entry.revisionId }
+}
+const selectedChatRevision = computed(() => {
+  const current = mapped.value
+  if (!current) return
+  const id = selectedView.value?.nodeId === current.card.id ? selectedView.value.revisionId : getActiveAnswerRevision(current.card).id
+  return getChatAnswerRevision(current.card, id)
+})
 const selectedTurnSource = computed(() => {
   const current = mapped.value
   if (!current || current.card.loading || !current.card.answer) return
-  return snapshotSource(current.card, current.block, { id: note.value.id, name: documentName.value }, current.path.at(-2)?.id)
+  const revision = selectedChatRevision.value
+  return snapshotSource(current.card, current.block, { id: note.value.id, name: documentName.value }, current.path.at(-2)?.id,
+    revision?.text ?? answerText(current.card), revision?.kind === 'edit' ? 'edited' : 'original', revision?.id)
 })
 const selectedTurnVersion = computed<StudyTurnVersion | undefined>(() => selectedTurnSource.value && versionFor(contextMetadata.value, selectedTurnSource.value))
 const selectedCacheBusy = computed(() => metadataLoading.value || !!selectedTurnSource.value && cacheSaving.has(sourceKey(selectedTurnSource.value)))
@@ -344,7 +402,7 @@ async function loadTurnMetadata(source: StudyTurnSource | undefined, previous?: 
   metadataLoading.value = !!source
   if (!source) return
   if (previous?.nodeId === source.nodeId && sourceKey(previous) !== sourceKey(source) && mapped.value?.card.id === source.nodeId) {
-    mapped.value.card.studyContext = { ...mapped.value.card.studyContext, title: undefined, revision: undefined,
+    if (source.answer === answerText(mapped.value.card)) mapped.value.card.studyContext = { ...mapped.value.card.studyContext, title: undefined, revision: undefined,
       state: 'pending', error: undefined }
   }
   try {
@@ -354,7 +412,7 @@ async function loadTurnMetadata(source: StudyTurnSource | undefined, previous?: 
     const version = versionFor(metadata, source)
     if (version) {
       metadataError.value = version.error || ''
-      if (mapped.value?.card.id === source.nodeId && metadata) cacheState(mapped.value.card, metadata, source)
+      if (mapped.value?.card.id === source.nodeId && metadata && source.answer === answerText(mapped.value.card)) cacheState(mapped.value.card, metadata, source)
     }
     // Opening a legacy turn backfills its title; failed attempts remain explicitly retryable.
     // A changed answer has a distinct source revision and must not reuse the previous title.
@@ -377,6 +435,7 @@ async function retryTurnCache() {
     { id: source.document.id, name: source.document.name }, source.parentId))
 }
 function selectMappedCard(id: string) {
+  selectedView.value = undefined
   selectedCardId.value = id
   if (!mapped.value) return
   selectedBlockId.value = mapped.value.block.id
@@ -402,27 +461,51 @@ async function addQuestion(target: Block, question: string, excerpt: string, fol
   if (!question) return
   if (question.length > 4000) { draft.value = question; error.value = '问题最多支持 4,000 字，请缩短后重试。'; return }
   const parent = followup?.parent
+  if (parent?.loading || parent?.chatBusy) { error.value = '请等待此节点的回答或打磨完成。'; return }
+  // Name a new conversation before freezing its first source snapshot, keeping later revision hashes stable.
+  if (isChat.value && !blocks.value.some(block => block.cards.length)) {
+    const name = question.replace(/\s+/g, ' ').trim()
+    const letters = Array.from(name)
+    note.value.name = letters.slice(0, 28).join('') + (letters.length > 28 ? '…' : '')
+  }
   const sourceDocument = { id: note.value.id, name: documentName.value }
+  const hasSource = Boolean(note.value.pdfId)
   const sourceBlock = { id: target.id, title: target.title }
   const path = parent ? cardPath(target.cards, parent.id) : undefined
   if (parent && !path) { error.value = '找不到追问的上层节点，请重新选择。'; return }
   const choice: StudyContextSelection = { depth: contextSelection.depth, level: contextSelection.level }
   // Freeze every chosen ancestor's source before the first async call, nearest node first.
-  const ancestors = (path || []).map((ancestor, index) => {
-    const immediate = ancestor.id === parent?.id && followup
-    const version = immediate ? followup.excerptVersion || (followup.parentAnswer === ancestor.answer ? 'original' : 'edited') : undefined
-    return snapshotSource(ancestor, sourceBlock, sourceDocument, path?.[index - 1]?.id,
-      immediate ? followup.parentAnswer : answerText(ancestor), version)
-  }).reverse()
+  const ancestors = parent && parent.contextAncestors
+    ? [snapshotSource(parent, sourceBlock, sourceDocument, path?.at(-2)?.id, followup!.parentAnswer,
+        followup!.parentAnswerVersion ?? (followup!.parentAnswer === parent.answer ? 'original' : 'edited'), followup!.parentAnswerRevisionId),
+      ...JSON.parse(JSON.stringify(parent.contextAncestors)) as StudyTurnSource[]]
+    : (path || []).map((ancestor, index) => {
+      const immediate = ancestor.id === parent?.id && followup
+      const version = immediate ? followup.parentAnswerVersion ?? followup.excerptVersion ??
+        (followup.parentAnswer === ancestor.answer ? 'original' : 'edited') : undefined
+      return snapshotSource(ancestor, sourceBlock, sourceDocument, path?.[index - 1]?.id,
+        immediate ? followup.parentAnswer : answerText(ancestor), version, immediate ? followup.parentAnswerRevisionId : undefined)
+    }).reverse()
+  const verifiedWiki = wikiContext()
+
   const page = parent ? parent.page : quotePage.value ?? (readerTab.value === 'source' ? sourcePage.value : pageForBlock(target))
   const viewer = pdfViewer.value
   const currentSourcePage = sourcePage.value
   const materialBody = target.body
   const card: Card = reactive({
     id: crypto.randomUUID(), question, excerpt, excerptVersion: followup?.excerptVersion,
+    contextAncestors: JSON.parse(JSON.stringify(ancestors)), parentAnswerRevisionId: followup?.parentAnswerRevisionId,
     page, answer: '', children: [], demo: !ready.value, loading: true,
     studyContext: { state: 'pending' }
   })
+  if (parent && !parent.children.length && followup?.parentAnswerRevisionId) {
+    const chosen = getChatAnswerRevision(parent, followup.parentAnswerRevisionId)
+    if (!chosen || chosen.text !== followup.parentAnswer) { error.value = '追问的回答版本已失效，请重新选择。'; return }
+    if (parent.activeAnswerId !== chosen.id) {
+      selectChatAnswerRevision(parent, chosen.id)
+      parent.studyContext = { ...parent.studyContext, title: undefined }
+    }
+  }
   const siblings = parent ? parent.children : target.cards
   siblings.push(card)
   selectedCardId.value = card.id
@@ -431,7 +514,8 @@ async function addQuestion(target: Block, question: string, excerpt: string, fol
   readerTab.value = 'content'
   preparingContext.add(card.id)
   try {
-    const materials = [`资料：${sourceDocument.name}`, `知识点：${sourceBlock.title}`]
+    const materials = ['以下祖先摘要与资料属于探索上下文。只有标为 Ground Truth 的用户审核原文片段可作为已确认依据。摘要和新生成内容仍待审核。',
+      ...(verifiedWiki ? ['【本会话 Ground Truth Wiki】\n' + verifiedWiki] : []), `${hasSource ? '资料' : '对话'}：${sourceDocument.name}`, `话题：${sourceBlock.title}`]
     if (excerpt) materials.push('选中内容：' + excerpt)
     materials.push(materialBody)
     if (page) {
@@ -441,8 +525,10 @@ async function addQuestion(target: Block, question: string, excerpt: string, fol
         if (current.page === page) materials.push(current.text)
       }
     }
+    const materialText = materials.join('\n').slice(0, 24000).replace(/[\uD800-\uDBFF]$/u, '')
     const prepared = await window.studyContextBridge.prepare({ nodeId: card.id, documentId: sourceDocument.id,
-      question, ancestors, selection: choice, materials: materials.join('\n'), limit: 24000 })
+      question, ancestors, selection: choice, materials: materialText, limit: 24000 })
+    card.contextSnapshot = JSON.parse(JSON.stringify(prepared))
     card.studyContext = { ...card.studyContext, request: { selection: { ...prepared.selection }, used: prepared.used,
       limit: prepared.limit, truncated: prepared.truncated, nodes: prepared.entries.length } }
     preparingContext.delete(card.id)
@@ -467,7 +553,36 @@ function submitQuestion() {
   void addQuestion(block, question, selection.value)
   clearSelection()
 }
+async function polishCard(input: { card: Card; instruction: string; revisionId: string }) {
+  const targetNote = note.value
+  const block = targetNote.blocks.find(block => !!cardPath(block.cards, input.card.id))
+  if (!block || input.card.children.length || input.card.loading || input.card.chatBusy) return
+  const path = cardPath(block.cards, input.card.id)!
+  const sourceDocument = { id: targetNote.id, name: targetNote.name }
+  const sourceBlock = { id: block.id, title: block.title }
+  // The lock starts before the first async call, including retrieval of a legacy request.
+  input.card.chatBusy = true
+  delete input.card.polishError
+  try {
+    const config = await readAIConfig()
+    if (!config.configured) throw new Error('请先配置模型，再打磨回答。')
+    const base = getChatAnswerRevision(input.card, input.revisionId)
+    const metadata = base?.request || input.card.contextSnapshot ? null : await window.studyContextBridge.get(input.card.id)
+    const request = input.card.contextSnapshot ?? base?.request ?? metadata?.request
+    input.card.chatBusy = false
+    const revision = await polishChatAnswer(input.card, input, askEngine, request)
+    if (note.value.id === targetNote.id && selectedCardId.value === input.card.id) {
+      selectedView.value = { nodeId: input.card.id, revisionId: revision.id }
+    }
+    const current = () => snapshotSource(input.card, sourceBlock, sourceDocument, path.at(-2)?.id)
+    void saveTurnCache(input.card, current(), current)
+  } catch (reason) {
+    input.card.polishError = reason instanceof Error ? reason.message : String(reason)
+  } finally { input.card.chatBusy = false }
+}
 function removeCard(card: Card) {
+  function busy(item: Card): boolean { return !!item.loading || !!item.chatBusy || item.children.some(busy) }
+  if (busy(card)) { error.value = '请等待此分支正在执行的任务完成。'; return }
   function remove(list: Card[]): boolean {
     const index = list.findIndex(item => item.id === card.id)
     if (index >= 0) { list.splice(index, 1); return true }
@@ -484,14 +599,16 @@ function removeCard(card: Card) {
       <aside class="sidebar">
         <div class="brand"><span class="brand-icon" aria-hidden="true">R</span><b>Rove</b></div>
         <slot name="mode-switch" />
-        <button class="new-doc" :disabled="importing" @click="openPdf"><span>＋</span> {{ importing ? '正在导入…' : '导入学习资料' }} <kbd>PDF</kbd></button>
+        <button type="button" class="new-doc" @click="newChat"><span>＋</span> 新对话</button>
+        <button type="button" class="new-doc import-reference" :disabled="importing" @click="openPdf"><span>↥</span> {{ importing ? '正在导入…' : '导入 PDF' }}</button>
         <div class="rail-tabs">
-          <button :aria-pressed="sidebarTab === 'library'" @click="sidebarTab='library'">资料库</button>
-          <button :aria-pressed="sidebarTab === 'outline'" @click="sidebarTab='outline'">目录</button>
+          <button :aria-pressed="sidebarTab === 'library'" @click="sidebarTab='library'">会话</button>
+          <button :aria-pressed="sidebarTab === 'outline'" @click="sidebarTab='outline'">{{ note.pdfId ? '目录' : '话题' }}</button>
+          <button :aria-pressed="sidebarTab === 'wiki'" @click="sidebarTab='wiki'">Wiki</button>
         </div>
         <div class="rail-scroll">
           <nav v-if="sidebarTab === 'outline'" aria-label="当前资料目录">
-            <h2 v-if="hasKnowledge" class="rail-heading">知识点</h2>
+            <h2 class="rail-heading">话题</h2>
             <button v-for="block in blocks" :key="block.id" class="toc-item" :class="{current:selectedBlockId === block.id}" @click="readBlock(block.id)">
               <span><SafeMarkdown :text="headingText(block.title)" inline /></span>
             </button>
@@ -500,22 +617,31 @@ function removeCard(card: Card) {
               <span>{{ item.title }}</span><small>{{ item.page }}</small>
             </button>
           </nav>
-          <nav v-else aria-label="我的资料">
-            <h2 class="rail-heading">我的资料 <small>{{ library.notes.length }}</small></h2>
+          <nav v-else-if="sidebarTab === 'wiki'" class="wiki-list" aria-label="Ground Truth Wiki">
+            <h2 class="rail-heading">已审核片段 <small>{{ wikiEntries.length }}</small></h2>
+            <p class="wiki-scope">当前会话 · 字符级审核</p>
+            <p v-if="!wikiEntries.length" class="wiki-empty">打开一个回答，在「字符审核」中选取并确认原文，即可加入 Wiki。</p>
+            <button v-for="(entry,index) in wikiEntries" :key="entry.card.id + entry.revisionId + entry.start + '-' + index"
+              class="wiki-entry" type="button" @click="openWikiEntry(entry)">
+              <strong>{{ cardTitle(entry.card) }}</strong><span>{{ entry.text }}</span><small>查看原文 ↗</small>
+            </button>
+          </nav>
+          <nav v-else aria-label="我的会话">
+            <h2 class="rail-heading">我的会话 <small>{{ library.notes.length }}</small></h2>
             <button v-for="item in library.notes" :key="item.id" class="file-item library-item" :class="{active:item.id === note.id}" @click="activate(item.id)">
               <span aria-hidden="true">▤</span><div><strong>{{ item.name }}</strong><small>{{ noteLabel(item.label) }}</small></div>
             </button>
           </nav>
         </div>
-        <div class="sidebar-bottom"><button class="settings-link" @click="settingsOpen=true">⚙ <span>AI 设置</span><i>{{ ready ? '已配置' : '演示模式' }}</i></button></div>
+        <div class="sidebar-bottom"><button class="settings-link" @click="settingsOpen=true">⚙ <span>AI 设置</span><i>{{ ready ? '已配置' : '未配置' }}</i></button></div>
       </aside>
     </ResizableSidebar>
     <main class="main">
       <header class="topbar">
-        <div class="breadcrumbs"><button @click="sidebarTab='library'">资料库</button><span class="slash">/</span><b>{{ documentName }}</b></div>
+        <div class="breadcrumbs"><button @click="sidebarTab='library'">Chat</button><span class="slash">/</span><b>{{ documentName }}</b></div>
         <div class="reader-actions">
           <button v-if="pdf" type="button" @click="showSource()">PDF 原文</button>
-          <button type="button" @click="readerOpen=true">阅读</button>
+          <button type="button" :aria-pressed="readerOpen" @click="readerOpen=!readerOpen"><span class="inspector-icon" aria-hidden="true"></span>{{ readerOpen ? '收起侧栏' : '打开侧栏' }}</button>
         </div>
       </header>
       <div v-if="error" class="error-bar" role="alert">{{ error }} <button aria-label="关闭提示" @click="error=''">×</button></div>
@@ -523,7 +649,7 @@ function removeCard(card: Card) {
         <ConversationCanvas :key="note.id" :document-name="documentName" :blocks="blocks" :selected-id="selectedCardId" :selected-block-id="readerOpen ? selectedBlockId : undefined"
           @select="selectMappedCard" @read="readBlock" @start="startQuestion">
           <template #actions>
-            <button v-if="pdf && !hasKnowledge" class="generate" :disabled="generating" @click="generateKnowledge">{{ generating ? '正在整理…' : '整理知识点' }}</button>
+            <button v-if="pdf && !hasKnowledge" class="generate" :disabled="generating" @click="generateKnowledge">{{ generating ? '正在整理…' : '整理资料' }}</button>
           </template>
         </ConversationCanvas>
         <ResizableSidebar v-show="readerOpen" side="right" storage-key="folio-reader-width" :initial-width="460" :min-width="280" :reserved-width="300" label="调整阅读栏宽度" class="reader-sidebar">
@@ -547,9 +673,10 @@ function removeCard(card: Card) {
             <div v-if="readerTab === 'content'" :key="selectedCardId || selectedBlockId" class="map-detail-scroll">
               <template v-if="mapped">
                 <button type="button" class="reader-parent" @click="readBlock(mapped.block.id)">← <SafeMarkdown inline :text="headingText(mapped.block.title)" /></button>
-                <QuestionCard :key="mapped.card.id" standalone :card="mapped.card" :page-count="pageCount" :selected-id="selectedCardId"
-                  @source="showSource" @ask="branchFrom(mapped.block, $event)" @remove="removeCard" />
-                <StudyContextPanel v-if="selectedTurnSource" :source="selectedTurnSource" :metadata="contextMetadata" :version="selectedTurnVersion"
+                <QuestionCard :key="mapped.card.id" chat standalone :revision-id="selectedView?.nodeId === mapped.card.id ? selectedView.revisionId : undefined" :card="mapped.card" :page-count="pageCount" :selected-id="selectedCardId"
+                  @source="showSource" @ask="branchFrom(mapped.block, $event)" @remove="removeCard"
+                  @polish="polishCard" @view-revision="selectedView={nodeId:mapped.card.id,revisionId:$event}" />
+                <StudyContextPanel v-if="selectedTurnSource" :source="selectedTurnSource" :metadata="contextMetadata" :version="selectedTurnVersion" :request-override="selectedChatRevision?.request"
                   :busy="selectedCacheBusy" :error="metadataError || mapped.card.studyContext?.error || ''" @retry="retryTurnCache" />
                 <div v-if="mapped.card.children.length" class="reader-branches">
                   <span>后续追问</span>
@@ -557,10 +684,12 @@ function removeCard(card: Card) {
                 </div>
               </template>
               <section v-else-if="selectedBlock" class="chapter-reader">
-                <h1><SafeMarkdown inline :text="headingText(selectedBlock.title)" /></h1>
+                <h1 v-if="isChat && !selectedBlock.cards.length">开始一段对话</h1>
+                <h1 v-else><SafeMarkdown inline :text="headingText(selectedBlock.title)" /></h1>
                 <button v-if="pdf && pageForBlock(selectedBlock)" class="source-link" @click="showSource(Number(pageForBlock(selectedBlock)))">原文第 {{ pageForBlock(selectedBlock) }} 页 ↗</button>
-                <p v-if="selectedBlock.title === '准备开始学习'" class="reader-hint">打开 PDF 原文开始阅读，或整理知识点后从地图进入。</p>
-                <div v-else ref="chapterBody" class="chapter-copy" @pointerup="captureChapterSelection" @keyup="captureChapterSelection">
+                <p v-if="isChat && !selectedBlock.cards.length" class="reader-hint">聊一个想法，提出一个问题，或从任何方向开始探索。每次追问都会保留在地图上。</p>
+                <p v-else-if="!selectedBlock.body.trim() && note.pdfId" class="reader-hint">可以直接围绕资料提问，也可以打开 PDF 阅读或整理资料。</p>
+                <div v-if="selectedBlock.body.trim()" ref="chapterBody" class="chapter-copy" @pointerup="captureChapterSelection" @keyup="captureChapterSelection">
                   <SafeMarkdown :text="selectedBlock.body" :page-count="pageCount" @source="showSource" />
                 </div>
                 <div v-if="selectedBlock.cards.length" class="reader-branches">
@@ -574,12 +703,12 @@ function removeCard(card: Card) {
             </div>
             <form v-if="!mapped || readerTab === 'source'" class="reader-question" @submit.prevent="submitQuestion">
               <div v-if="selection" class="reader-quote">
-                <span>{{ quotePage ? '原文第 ' + quotePage + ' 页选文' : '知识点选文' }}</span>
+                <span>{{ quotePage ? '原文第 ' + quotePage + ' 页选文' : '引用内容' }}</span>
                 <button type="button" aria-label="取消引用" @click="clearSelection">×</button>
                 <div><SafeMarkdown inline :text="selection" /></div>
               </div>
-              <label for="reader-question">{{ readerTab === 'source' ? '原文第 ' + sourcePage + ' 页提问' : '针对本节提问' }}</label>
-              <textarea id="reader-question" ref="questionInput" v-model="draft" aria-label="新问题" placeholder="哪一步没理解？" rows="2" @keydown.meta.enter.prevent="submitQuestion" @keydown.ctrl.enter.prevent="submitQuestion" />
+              <label for="reader-question">{{ readerTab === 'source' ? '原文第 ' + sourcePage + ' 页提问' : '开始一个话题' }}</label>
+              <textarea id="reader-question" ref="questionInput" v-model="draft" aria-label="新问题" placeholder="想聊什么？" rows="2" @keydown.meta.enter.prevent="submitQuestion" @keydown.ctrl.enter.prevent="submitQuestion" />
               <button type="submit" :disabled="!draft.trim()">提问 ↗</button>
             </form>
           </aside>
@@ -593,7 +722,7 @@ function removeCard(card: Card) {
         <label>服务地址<input readonly :value="aiConfig.baseUrl || '未填写'" /></label>
         <label>模型名称<input readonly :value="aiConfig.model || '未填写'" /></label>
         <p v-if="configError" role="alert">{{ configError }}</p>
-        <div class="privacy-note">整理知识点或追问时，Rove 会将相关资料文本发送给此模型服务。</div>
+        <div class="privacy-note">发送消息、生成摘要或整理资料时，Rove 会将相关对话和所选资料发送给此模型服务。</div>
         <button type="button" class="save-settings" @click="showEnvFile">在 Finder 中显示 .env</button>
       </section>
     </div>
@@ -601,12 +730,67 @@ function removeCard(card: Card) {
 </template>
 
 <style scoped>
-.study-context-controls { flex:none; padding:9px 15px 10px; border-bottom:1px solid #e0e6dc; background:#f9fbf6; }
-.study-context-pickers { display:flex; align-items:center; flex-wrap:wrap; gap:8px 16px; }
-.study-context-pickers label { display:flex; align-items:center; gap:5px; color:#526454; font-size:11px; }
-.study-context-pickers input,.study-context-pickers select { padding:3px 5px; min-width:0; color:#304b36; background:#fff; border:1px solid #d2ddcc; border-radius:5px; font:inherit; }
-.study-context-pickers input { width:42px; }
-.study-context-controls>small { display:block; margin-top:6px; color:#7a8979; font-size:10px; }
-.study-context-controls>p { margin:6px 0 0; color:#61715e; font-size:10px; }
-.study-context-budget span { color:#9a6c32; }
+.library-sidebar .import-reference {
+  height: 32px;
+  margin-top: 7px;
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+  color: #83778e;
+  font-size: 11px;
+  font-weight: 400;
+}
+.library-sidebar .import-reference:hover {
+  border-color: #e0d5ea;
+  background: #eee8f7;
+  color: #5e5368;
+}
+.study-context-controls {
+  flex: none;
+  padding: 13px 22px;
+  border-bottom: 1px solid var(--rove-line);
+  background: #faf8fd;
+}
+.study-context-pickers {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 9px 16px;
+}
+.study-context-pickers label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #897e93;
+  font-size: 11px;
+}
+.study-context-pickers input,
+.study-context-pickers select {
+  min-width: 0;
+  height: 27px;
+  padding: 3px 6px;
+  border: 1px solid #e4dcec;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #5b5263;
+  font-size: 11px;
+}
+.study-context-pickers input { width: 44px; font-variant-numeric: tabular-nums; }
+.study-context-controls > small { display: block; margin-top: 8px; color: #958b9e; font-size: 10px; line-height: 1.7; }
+.study-context-controls > p { margin: 6px 0 0; color: #84788e; font-size: 10px; line-height: 1.7; }
+.study-context-budget span { color: #a17a43; }
+@media (max-width: 1100px) {
+  .study-context-controls { padding-inline: 16px; }
+}
+</style>
+
+<style scoped>
+.wiki-scope { margin: 0 8px 16px; color: var(--rove-muted); font-size: 10px; }
+.wiki-empty { padding: 0 8px; color: var(--rove-muted); font-size: 12px; line-height: 1.8; }
+.wiki-entry { display: block; width: 100%; margin-bottom: 9px; padding: 12px; border: 1px solid var(--rove-line); border-radius: 9px; background: #faf8fe; text-align: left; }
+.wiki-entry:hover { background: var(--rove-accent-soft); }
+.wiki-entry strong,.wiki-entry span,.wiki-entry small { display: block; }
+.wiki-entry strong { margin-bottom: 7px; color: var(--rove-text); font-size: 11px; font-weight: 600; }
+.wiki-entry span { max-height: 7em; overflow: hidden; color: #73677f; font-size: 11px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
+.wiki-entry small { margin-top: 9px; color: var(--rove-accent); font-size: 10px; }
 </style>

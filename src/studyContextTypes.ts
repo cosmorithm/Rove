@@ -47,6 +47,8 @@ export interface PreparedStudyContext {
   limit: number
   used: number
   truncated: boolean
+  /** Offset where inherited entry sections start in context, used by nested polish requests. */
+  entriesOffset?: number
   entries: StudyContextEntry[]
   omittedNodeIds: string[]
   materialsIncludedChars: number

@@ -3,7 +3,7 @@
   "version": "0.1.1",
   "private": true,
   "productName": "Rove",
-  "description": "A local-first learning workspace for Mac",
+  "description": "A local-first branching chat and coding workspace for Mac",
   "main": "./out/main/index.js",
   "scripts": {
     "predev": "install-electron",

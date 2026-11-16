@@ -2,7 +2,7 @@
 
 Rove explores a graph-based way to work with AI. Start from a question, follow an idea, return to an earlier node, and open another branch. Each path stays available to revisit and continue.
 
-Rove brings learning and coding into one macOS application. Learning mode helps you study PDFs, textbooks, and problem sets. Coding mode connects branching conversations to a local Git project and DeepSeek Harness (dsh). A map holds your questions and their relationships, while a side reader displays source material, answers, code, and changes.
+Rove brings Chat and Coding into one macOS application. Chat lets you explore any question, develop ideas, and branch into different directions. Start a conversation immediately, or optionally import a PDF as reference material. Coding connects branching conversations to a local Git project and DeepSeek Harness (dsh). A map holds your questions and their relationships, while a side reader displays conversations, reference material, code, and changes.
 
 ## Branching exploration
 
@@ -18,27 +18,35 @@ The highlighted path illustrates ancestor-based context selection. Dashed links 
 
 ![Rove showing branching questions and a mathematical explanation in the side reader](docs/images/rove-desktop.jpg)
 
-Rove is an early prototype. The current interface and default tutoring prompts are in Chinese.
+Rove is an early prototype. The current interface is primarily in Chinese; Chat follows the language and task requested by the user.
 
 ## Exploring with Rove
 
-1. Import a PDF and read it in the side reader.
-2. Ask AI to organize the document into knowledge points.
-3. Open a knowledge point and ask about a passage, formula, or step you want to understand.
-4. Continue from any answer to create a follow-up branch.
-5. Return to an earlier node and explore another direction. Your existing branches stay on the map.
+1. Open **Chat**, choose **New conversation**, and send any question. No document is required.
+2. Continue from any answer to create a follow-up branch.
+3. Return to an earlier node and explore another direction. Your existing branches stay on the map.
+4. Optionally import a PDF to read, quote, discuss, or organize its contents in the side reader.
+5. Switch between conversations while keeping their maps and context separate.
 
-You can select text or formulas from an answer, save excerpts, and use them in follow-up questions. Answers support Markdown and LaTeX rendering. You can also edit an answer and switch between the original AI response and your latest revision.
+You can select text or formulas from an answer, save excerpts, and use them in follow-up questions. Answers support Markdown and LaTeX rendering. In Chat, leaf nodes support AI polish and manual revisions, with every completed version available to revisit. Once a node has children, its active answer is fixed. Follow-ups retain the chosen parent answer version and ancestor sources.
 
 The map supports zoom, fit-to-view, and keyboard navigation. Both the library sidebar and the reading sidebar have draggable dividers, remember their widths, and return to their default widths on double-click.
 
-## Learning context
+## Chat context
 
-Each learning turn has its own metadata file, with the question, answer version, selected passage, document and page references, and the exact context sent for that request. Source revisions use content hashes. Each revision has three summary caches: **L0** is an automatic, single-line title (up to 32 UTF-16 units), **L1** is a short summary (up to 240 units), and **L2** retains more detail (up to 1,200 units). All three are generated in one model request and reused; editing an answer creates a new source revision while earlier versions remain available. L0 titles label map nodes and the side reader, with the original question preserved. Opening an older turn automatically fills in its missing title; failed generation can be retried in the metadata panel.
+Each Chat turn has its own metadata file, with the question, answer version, selected passage, document and page references, and the exact context sent for that request. Source revisions use content hashes. Each revision has three summary caches: **L0** is an automatic, single-line title (up to 32 UTF-16 units), **L1** is a short summary (up to 240 units), and **L2** retains more detail (up to 1,200 units). All three are generated in one model request and reused; editing an answer creates a new source revision while earlier versions remain available. L0 titles label map nodes and the side reader, with the original question preserved. Opening an older turn automatically fills in its missing title; failed generation can be retried in the metadata panel.
 
-Before a follow-up, choose how many levels to inherit (0–100) and whether to use L0, L1, or L2. The direct parent is level 1. Rove appends selected summaries from the nearest node toward the root, then appends the current learning material. It directly truncates the resulting context at 24,000 UTF-16 units, preserving nearer nodes first. The current question is sent separately. The metadata panel shows the selected nodes and revisions, actual transmitted text, and where content was truncated.
+Before a follow-up, choose how many levels to inherit (0–100) and whether to use L0, L1, or L2. The direct parent is level 1. Rove appends selected summaries from the nearest node toward the root, then appends the conversation topic and any selected reference material. It directly truncates the resulting context at 24,000 UTF-16 units, preserving nearer nodes first. The current question is sent separately. The metadata panel shows the selected nodes and revisions, actual transmitted text, and where content was truncated.
 
-New answers generate all three caches in the background. Older nodes generate missing caches when opened, selected for inheritance, or through the metadata panel. Summary errors are visible and retryable. Cache generation uses the learning model configured in `.env`; changing an answer invalidates the previous source revision's cache for that edited content.
+New answers generate all three caches in the background. Older nodes generate missing caches when opened, selected for inheritance, or through the metadata panel. Summary errors are visible and retryable. Cache generation uses the Chat model configured in `.env`; changing an answer invalidates the previous source revision's cache for that edited content.
+
+## Leaf polish and reviewed knowledge
+
+Choose **Polish answer** on a Chat leaf node, describe the changes you want, and generate another complete answer. Earlier answers and their approvals remain available. A failed attempt preserves the existing answer, and each successful polish records its actual model input. Historical non-leaf versions remain readable and reviewable.
+
+Open **Character review** to select an exact range in the Markdown source and explicitly approve it. Approvals are bound to that answer version and character range, and can be revoked. The current conversation's **Wiki** lists these approved source snippets with links back to their versions. New answers and generated summaries require their own review before becoming Ground Truth.
+
+Approved snippets are eligible for inclusion in later Chat context within its existing length budget. Nodes retain their original question, and following a branch records the specific parent answer used. The interface uses a light lavender palette with resizable reading panels and a floating map zoom control.
 
 ## Coding mode
 
@@ -56,11 +64,11 @@ Coding mode bundles **DeepSeek Harness (dsh)**. Configure `DEEPSEEK_API_KEY` in 
 
 ## Project direction
 
-Rove investigates a graph-based AI harness in which users can branch, revisit, and switch between exploration paths, with AI tutoring as the first use case.
+Rove investigates a graph-based AI harness in which users can branch, revisit, and switch between exploration paths across open-ended conversations, document exploration, and coding.
 
 The proposed context mechanism starts at the active node and follows its ancestors, selecting summaries or original material according to the current question and available context budget. Traceable sources and versioned context would let users inspect the information behind each answer.
 
-The prototype stores questions through parent–child links. Learning mode uses user-selected ancestor depth and L0/L1/L2 summaries, with request snapshots and versioned caches. Coding mode supplies the selected ancestor conversation path and code context, with each turn's input, result, and public tool events recorded in Git. The two modes currently use separate context builders; a reusable harness API remains an area for development.
+The prototype stores questions through parent–child links. Chat uses user-selected ancestor depth and L0/L1/L2 summaries, with request snapshots and versioned caches. Coding mode supplies the selected ancestor conversation path and code context, with each turn's input, result, and public tool events recorded in Git. The two modes currently use separate context builders; a reusable harness API remains an area for development.
 
 ## Tech stack
 
@@ -131,16 +139,16 @@ To build the application code on its own, run `npm run build`. Build output is w
 
 ## Data and model requests
 
-Imported PDFs and study records are stored on your Mac. Learning turn metadata, source revisions, summary caches, and context snapshots are stored under `study-context/` in the application data directory. The current data directory is `~/Library/Application Support/知序`, retained from earlier builds. Reimporting a PDF with identical contents opens its existing study record.
+Conversations and imported PDFs are stored on your Mac. Chat turn metadata, source revisions, summary caches, and context snapshots are stored under `study-context/` in the application data directory. This storage name and the current data directory, `~/Library/Application Support/知序`, are retained from earlier builds for compatibility. Existing conversations and PDFs remain available. Reimporting a PDF with identical contents opens its existing record.
 
-When you organize a document or ask a question, Rove sends the relevant document text and question context to the model provider configured in `.env`. API keys are read by the Electron main process. `.env`, build output, installed dependencies, and `Rove.app` are excluded by `.gitignore`.
+When you send a message, generate summaries, or organize a document, Rove sends the relevant conversation context and selected reference text to the model provider configured in `.env`. API keys are read by the Electron main process. `.env`, build output, installed dependencies, and `Rove.app` are excluded by `.gitignore`.
 
 Coding actions send the task, conversation path, and selected code to the DeepSeek provider configured for dsh. Project registrations and workspace paths are kept in the application data directory; project source files stay in the workspace you select. Separate branch worktrees are created only in a directory you explicitly choose. Per-turn commits and their conversation records are stored locally in the selected Git repository.
 
 ## Current limits
 
-- Automatic knowledge-point generation uses extractable PDF text. Scanned PDFs can be viewed. OCR is a future extension.
-- Learning-mode inheritance uses the selected L0/L1/L2 caches. L0 carries only the turn title; use L1 or L2 when the follow-up needs conclusions or reasoning details. Fetching historical PDF page text automatically is a further improvement; page text is currently included when available in the reader.
-- Learning-mode context is capped at 24,000 UTF-16 units with visible truncation. Questions over 4,000 units are rejected before sending. Summary generation separately marks truncated inputs or outputs while keeping the original source metadata.
-- Answer editing keeps the original response and the latest revision. Coding-mode Git records retain the original completed turn, with revisions included in later turns when selected as context.
-- Source-page links help readers check the original document. Answer verification is a further research goal.
+- PDF organization uses extractable PDF text. Scanned PDFs can be viewed. OCR is a future extension.
+- Chat inheritance uses the selected L0/L1/L2 caches. L0 carries only the turn title; use L1 or L2 when the follow-up needs conclusions or reasoning details. Fetching historical PDF page text automatically is a further improvement; page text is currently included when available in the reader.
+- Chat context is capped at 24,000 UTF-16 units with visible truncation. Questions over 4,000 units are rejected before sending. Summary generation separately marks truncated inputs or outputs while keeping the original source metadata.
+- Chat retains successive AI polish and manual answer versions. These mutations are available on leaf nodes. Coding answer editing keeps the original response and the latest manual revision, while Git records retain each completed turn.
+- Ground Truth records user-reviewed source spans. Automatic factual verification and conflict resolution across approved snippets remain areas for development. Source-page links and version snapshots support manual review.

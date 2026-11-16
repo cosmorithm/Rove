@@ -547,73 +547,185 @@ function removeNode(card: Card) {
 </template>
 
 <style scoped>
-.coding-shell { display:flex; height:100vh; min-height:0; color:#253c31; font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif; background:#f7f8f4; }
-.code-library { width:100%; height:100%; min-width:0; overflow:hidden; }
-.code-library .new-doc { flex:none; margin:14px 0; }
-.project-pickers { display:grid; gap:8px; margin:0 0 13px; }
-.project-pickers label,.file-filter,.task-form label,.commit-form label { display:block; font-size:11px; font-weight:600; color:#596c5d; }
-.project-pickers select,.file-filter input,.commit-form input { display:block; box-sizing:border-box; width:100%; min-width:0; margin-top:4px; padding:5px 6px; border:1px solid #d4ddd2; border-radius:6px; background:#fcfdfb; font-family:inherit; font-size:12px; line-height:1.4; color:#314f3b; }
-.workspace-location { margin:0 0 12px; }
-.workspace-location small { color:#596c5d; font-size:11px; font-weight:600; }
-.workspace-location p { margin:4px 0 6px; color:#637568; font:10px/1.5 ui-monospace,monospace; overflow-wrap:anywhere; user-select:text; }
-.workspace-location button { padding:3px 6px; border:1px solid #d1dbd0; border-radius:5px; background:#fcfdfb; color:#385441; font:11px/1.35 -apple-system,BlinkMacSystemFont,sans-serif; cursor:pointer; }
-.file-filter { margin:3px 0 6px; }
-.code-files { flex:1; min-height:0; overflow:auto; }
-.code-files button { width:100%; display:flex; align-items:center; gap:6px; padding:5px 4px; border:0; background:none; border-radius:5px; color:#45594a; text-align:left; font:12px/1.45 ui-monospace,monospace; cursor:pointer; }
-.code-files button span:nth-child(2) { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.code-files button:hover,.code-files [aria-current] { background:#e2eadf; }
-.file-glyph,.code-files i { color:#718b74; font-size:11px; }
-.code-files p,.pane-note { color:#718075; font-size:12px; line-height:1.6; }
-.engine-status { flex:none; display:flex; align-items:center; gap:7px; padding-top:12px; margin-top:auto; border-top:1px solid #dbe2d8; }
-.engine-status div { min-width:0;flex:1; }
-.engine-status b,.engine-status small { display:block; font-size:11px; font-weight:500; }
-.engine-status small { color:#67796b; padding-top:2px; }
-.engine-dot,.progress-strip i { width:7px; height:7px; border-radius:50%; background:#9caaa0; }
-.engine-dot.online,.progress-strip i { background:#658b69; }
-.code-main { display:flex; flex:1; flex-direction:column; min-width:0; min-height:0; overflow:hidden; background:#fff; }
-.code-top { display:flex; align-items:center; justify-content:space-between; gap:10px; min-height:49px; padding:0 15px; border-bottom:1px solid #dfe5dd; }
-.code-top>div,.task-buttons,.code-footer,.diff-tools,.snapshot>div { display:flex; align-items:center; gap:7px; min-width:0; }
-.code-top small,.code-top span { color:#647367; font-size:12px; }
-.code-top strong { font-size:13px; overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
-.branch-label,.snapshot code { font-family:ui-monospace,monospace; }
-.branch-label { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:170px; }
-.code-main button:not(.canvas-node):not(.question-card button):not(.conversation-canvas button),.engine-status button { cursor:pointer; }
-.code-top button,.engine-status button,.code-footer button,.task-buttons button,.snapshot button,.diff-tools button,.commit-form button,.progress-strip button,.code-empty button { padding:5px 9px; border:1px solid #d1dbd0; border-radius:6px; background:#fff; color:#385441; font:500 12px/1.35 -apple-system,BlinkMacSystemFont,sans-serif; }
-.coding-shell button:disabled { opacity:.5; cursor:default; }
-.code-main .code-primary { color:white; background:#446b50; border-color:#446b50; }
-.code-body { display:flex; flex:1; min-height:0; min-width:0; }
-.code-inspector { display:flex; flex-direction:column; width:100%; height:100%; min-height:0; border-left:1px solid #dce2da; background:#fbfcfa; }
-.code-tabs { display:flex; flex-wrap:wrap; flex:none; gap:3px; padding:8px 10px; border-bottom:1px solid #dce3d9; }
-.code-tabs button,.back-root { border:0; border-radius:5px; background:transparent; padding:5px 9px; color:#607164; font:500 12px/1.35 -apple-system,BlinkMacSystemFont,sans-serif; }
-.code-tabs button[aria-pressed=true],.diff-tools button[aria-pressed=true] { background:#e5ede3; color:#35553d; }
-.conversation-pane,.editor-pane,.diff-pane,.trace-pane { flex:1; min-height:0; display:flex; flex-direction:column; }
-.code-detail-scroll,.diff-pane { overflow:auto; }
-.code-detail-scroll { flex:1; min-height:0; padding:15px; }
-.code-detail-scroll h2,.code-empty h1 { margin:4px 0; font-size:19px; font-weight:600; }
-.workspace-path,.file-title b { overflow-wrap:anywhere; font:12px/1.5 ui-monospace,monospace; }
-.back-root { padding-left:0; }
-.snapshot { display:flex; align-items:center; flex-wrap:wrap; gap:5px 7px; margin:14px 0; color:#5b6d60; font-size:11px; }
-.snapshot>div { width:100%; flex-wrap:wrap; }
-.snapshot code { padding:2px 4px;background:#eaf0e8;border-radius:3px; }
-.task-form,.commit-form { display:grid; gap:8px; padding:12px; border-top:1px solid #dce4da; background:white; }
-.task-form small,.file-title small,.commit-form small { color:#66776a; font-size:11px; overflow-wrap:anywhere; }
-.task-form textarea { resize:vertical; min-height:48px; max-height:150px; padding:8px; border:1px solid #cfdacf; border-radius:7px; font-family:inherit; font-size:13px; line-height:1.5; color:#304937; }
-.task-buttons { justify-content:flex-end; }
-.file-title { display:flex; align-items:center; justify-content:space-between; gap:9px; padding:11px 12px; }
-.code-editor,.diff-view { font:12px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace; border:0; background:#fff; padding:10px 12px; color:#2b4131; }
-.code-editor { min-width:0; flex:1; resize:none; tab-size:4; white-space:pre; overflow:auto; border-top:1px solid #e5eae2; }
-.code-footer,.diff-tools { padding:9px; flex-wrap:wrap; border-top:1px solid #dce2d9; }
-.editor-pane>.pane-note,.diff-pane>.pane-note { padding:0 12px; }
-.diff-view { margin:0; min-height:100px; flex:1; overflow:auto; }
-.changed-files { list-style:none; padding:0 12px; margin:6px 0; max-height:105px; overflow:auto; font-size:11px; }
-.changed-files li { display:flex; align-items:baseline; gap:6px; }
-.changed-files button { border:0; padding:3px; background:none; color:#456c4f; overflow-wrap:anywhere; text-align:left; }
-.commit-form { margin-top:auto; }
-.progress-strip,.code-error { display:flex; align-items:center; gap:8px; padding:7px 15px; font-size:12px; background:#edf3eb; }
-.progress-strip small { flex:none; color:#637568; font-size:11px; font-variant-numeric:tabular-nums; }
-.progress-strip span,.code-error span { flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
-.code-error { color:#86462e; background:#fff0e7; word-break:break-word; }
-.code-error button { margin-left:auto; border:0; background:none; }
-.code-empty { flex:1; display:grid; place-items:center; padding:30px; }
-.code-empty p { font-size:13px; color:#637366; }
+.coding-shell {
+  display: flex;
+  height: 100vh;
+  min-height: 0;
+  color: var(--rove-text, #383342);
+  font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif;
+  background: var(--rove-canvas, #f8f7fc);
+}
+.code-library { width: 100%; height: 100%; min-width: 0; overflow: hidden; }
+.project-pickers { display: grid; gap: 12px; margin: 18px 0 16px; }
+.project-pickers label, .file-filter, .task-form label, .commit-form label {
+  display: block;
+  color: #6c6275;
+  font-size: 11px;
+  font-weight: 500;
+}
+.project-pickers select, .file-filter input, .commit-form input {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  margin-top: 6px;
+  padding: 7px 9px;
+  border: 1px solid var(--rove-line, #e8e2ee);
+  border-radius: 7px;
+  background: #ffffffc9;
+  color: var(--rove-text, #383342);
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.4;
+  box-shadow: 0 1px 2px #2e283303;
+}
+.project-pickers select:focus-visible, .file-filter input:focus-visible, .commit-form input:focus-visible, .task-form textarea:focus-visible {
+  outline: 2px solid #80649f40;
+  outline-offset: 1px;
+  border-color: var(--rove-accent, #80649f);
+}
+.workspace-location { margin: 0 0 18px; }
+.workspace-location small { color: #6c6275; font-size: 11px; font-weight: 500; }
+.workspace-location p {
+  margin: 6px 0 9px;
+  color: var(--rove-muted, #82778e);
+  font: 11px/1.65 ui-monospace, SFMono-Regular, monospace;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.workspace-location button {
+  padding: 5px 8px;
+  border: 1px solid var(--rove-line, #e8e2ee);
+  border-radius: 6px;
+  background: #ffffffb8;
+  color: #5b5263;
+  font: 11px/1.4 -apple-system, BlinkMacSystemFont, sans-serif;
+  cursor: pointer;
+}
+.file-filter { margin: 0 0 8px; }
+.file-filter input::placeholder, .commit-form input::placeholder, .task-form textarea::placeholder { color: #9f8fae; }
+.code-files { flex: 1; min-height: 0; overflow: auto; margin-inline: -3px; padding-inline: 3px; }
+.code-files button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: #5c5364;
+  text-align: left;
+  font: 11px/1.5 ui-monospace, SFMono-Regular, monospace;
+  cursor: pointer;
+}
+.code-files button span:nth-child(2) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.code-files button:hover { background: #eee8f7; }
+.code-files button[aria-current] { color: #4f4658; background: #e4daec; }
+.file-glyph { color: #a191af; font-size: 13px; }
+.code-files i { margin-left: auto; color: #b48d4b; font-size: 11px; font-style: normal; }
+.code-files p, .pane-note { color: var(--rove-muted, #82778e); font-size: 12px; line-height: 1.8; }
+.engine-status {
+  display: flex;
+  align-items: center;
+  flex: none;
+  gap: 9px;
+  margin-top: auto;
+  padding: 16px 2px 4px;
+  border-top: 1px solid var(--rove-line, #e8e2ee);
+}
+.engine-status div { min-width: 0; flex: 1; }
+.engine-status b, .engine-status small { display: block; font-size: 11px; font-weight: 500; line-height: 1.5; }
+.engine-status b { color: #5c5266; }
+.engine-status small { color: var(--rove-muted, #82778e); padding-top: 2px; font-weight: 400; }
+.engine-dot, .progress-strip i { flex: none; width: 6px; height: 6px; border-radius: 50%; background: #afa2bb; }
+.engine-dot.online, .progress-strip i { background: #756a7f; box-shadow: 0 0 0 3px #75678210; }
+.code-main { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; background: var(--rove-surface, #fff); }
+.code-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex: none;
+  gap: 14px;
+  height: 58px;
+  padding: 0 24px;
+  border-bottom: 1px solid var(--rove-line, #e8e2ee);
+  background: #fcfbff;
+}
+.code-top > div, .task-buttons, .code-footer, .diff-tools, .snapshot > div { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.code-top small, .code-top span { color: var(--rove-muted, #82778e); font-size: 12px; }
+.code-top > div:first-child > span { color: #c4bacd; margin-inline: 5px; }
+.code-top strong { color: #484050; font-size: 12px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.branch-label, .snapshot code { font-family: ui-monospace, SFMono-Regular, monospace; }
+.code-top .branch-label { max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #6a6072; font-size: 11px; }
+.code-main button, .engine-status button { cursor: pointer; }
+.code-top button, .engine-status button, .code-footer button, .task-buttons button, .snapshot button, .diff-tools button, .commit-form button, .progress-strip button, .code-empty button {
+  padding: 6px 10px;
+  border: 1px solid var(--rove-line, #e8e2ee);
+  border-radius: 7px;
+  background: var(--rove-surface, #fff);
+  color: #5b5363;
+  font: 500 12px/1.4 -apple-system, BlinkMacSystemFont, sans-serif;
+  box-shadow: 0 1px 2px #2a252f04;
+  transition: background .15s ease, border-color .15s ease;
+}
+.code-top button:hover, .code-footer button:hover, .task-buttons button:hover, .snapshot button:hover, .diff-tools button:hover, .commit-form button:hover, .progress-strip button:hover { background: #f4eff9; border-color: #d2c3e0; }
+.engine-status button { padding: 3px 7px; border: 0; background: transparent; box-shadow: none; font-size: 17px; color: #90859a; }
+.coding-shell button:disabled { opacity: .4; cursor: default; }
+.code-main .code-primary { color: white; background: var(--rove-accent-strong, #756095); border-color: var(--rove-accent, #80649f); box-shadow: inset 0 1px 0 #ffffff14, 0 1px 2px #2a252f08; }
+.code-main .code-primary:hover { color: white; background: #6f558c; border-color: #6f558c; }
+.code-body { display: flex; flex: 1; min-height: 0; min-width: 0; }
+.code-inspector { display: flex; flex-direction: column; width: 100%; height: 100%; min-height: 0; border-left: 1px solid var(--rove-line, #e8e2ee); background: var(--rove-surface, #fff); }
+.code-tabs { display: flex; align-items: center; flex-wrap: wrap; flex: none; gap: 4px; min-height: 53px; padding: 9px 14px; border-bottom: 1px solid var(--rove-line, #e8e2ee); background: #fdfbff; }
+.code-tabs button, .back-root { padding: 6px 10px; border: 0; border-radius: 6px; background: transparent; color: #82768c; font: 500 12px/1.4 -apple-system, BlinkMacSystemFont, sans-serif; }
+.code-tabs button:hover { background: #f4eff9; }
+.code-tabs button[aria-pressed=true], .diff-tools button[aria-pressed=true] { color: #504758; background: #eee8f7; }
+.conversation-pane, .editor-pane, .diff-pane, .trace-pane { display: flex; flex: 1; flex-direction: column; min-height: 0; }
+.code-detail-scroll, .diff-pane { overflow: auto; }
+.code-detail-scroll { flex: 1; min-height: 0; padding: 24px; }
+.code-detail-scroll h2, .code-empty h1 { margin: 4px 0 12px; font-size: 22px; font-weight: 600; letter-spacing: -.035em; color: #483c58; }
+.workspace-path, .file-title b { overflow-wrap: anywhere; font: 12px/1.7 ui-monospace, SFMono-Regular, monospace; color: #83778d; }
+.back-root { padding: 0; margin-bottom: 20px; color: #82768c; font-size: 11px; }
+.back-root:hover { color: var(--rove-accent, #80649f); }
+.snapshot { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 24px 0 4px; padding-top: 18px; border-top: 1px solid var(--rove-line, #e8e2ee); color: #81758c; font-size: 11px; line-height: 1.6; }
+.snapshot > div { width: 100%; flex-wrap: wrap; gap: 6px; margin-top: 5px; }
+.snapshot code { padding: 2px 5px; color: #6c6175; background: #f4eff9; border-radius: 4px; font-size: 11px; }
+.snapshot button { padding: 5px 8px; font-size: 11px; }
+.task-form, .commit-form { display: grid; gap: 10px; padding: 17px 20px; border-top: 1px solid var(--rove-line, #e8e2ee); background: #fcfbff; }
+.task-form small, .file-title small, .commit-form small { color: var(--rove-muted, #82778e); font-size: 11px; line-height: 1.6; overflow-wrap: anywhere; }
+.task-form textarea { resize: vertical; min-height: 64px; max-height: 180px; padding: 12px; border: 1px solid #ded3e8; border-radius: 9px; background: var(--rove-surface, #fff); color: var(--rove-text, #383342); font-family: inherit; font-size: 13px; line-height: 1.7; box-shadow: 0 1px 2px #2e283303; }
+.task-buttons { justify-content: flex-end; gap: 8px; }
+.file-title { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 14px 18px; background: #faf8fd; }
+.file-title b { color: #5f5667; font-size: 11px; font-weight: 500; }
+.file-title small { font-size: 11px; white-space: nowrap; }
+.code-editor, .diff-view { padding: 16px 20px; border: 0; background: var(--rove-surface, #fff); color: #4c4454; font: 12px/1.8 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.code-editor { min-width: 0; flex: 1; resize: none; tab-size: 4; white-space: pre; overflow: auto; border-top: 1px solid #ece6f2; outline-offset: -2px; }
+.code-footer, .diff-tools { padding: 12px 16px; flex-wrap: wrap; border-top: 1px solid var(--rove-line, #e8e2ee); background: #fcfbff; }
+.editor-pane > .pane-note, .diff-pane > .pane-note { padding: 0 20px; }
+.diff-tools { border-top: 0; border-bottom: 1px solid var(--rove-line, #e8e2ee); }
+.diff-view { margin: 0; min-height: 100px; flex: 1; overflow: auto; }
+.changed-files { list-style: none; padding: 8px 20px; margin: 0; max-height: 120px; overflow: auto; font-size: 11px; background: #fdfbff; }
+.changed-files li { display: flex; align-items: baseline; gap: 9px; }
+.changed-files code { color: #7d7187; font-size: 11px; }
+.changed-files button { padding: 4px 0; border: 0; background: none; color: #62586a; overflow-wrap: anywhere; text-align: left; font-family: ui-monospace, SFMono-Regular, monospace; font-size: 11px; }
+.commit-form { margin-top: auto; }
+.progress-strip, .code-error { display: flex; align-items: center; gap: 10px; padding: 10px 24px; font-size: 12px; background: #f0eaf7; border-top: 1px solid #e3d9ec; }
+.progress-strip small { flex: none; color: #766a80; font-size: 11px; font-variant-numeric: tabular-nums; }
+.progress-strip span, .code-error span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.code-error { color: #975d40; background: #fcf1e9; word-break: break-word; border-top: 0; border-bottom: 1px solid #f0dfd3; }
+.code-error button { margin-left: auto; border: 0; background: none; font-size: 18px; color: inherit; }
+.code-empty { display: grid; flex: 1; place-items: center; padding: 40px; background: radial-gradient(ellipse at center, #fcfbff 0, #f7f4fb 75%); }
+.code-empty > div { max-width: 360px; }
+.code-empty p { margin: 0 0 24px; font-size: 13px; line-height: 1.8; color: #84788f; }
+.code-empty button { padding: 9px 15px; }
+.code-main button:focus-visible, .code-files button:focus-visible { outline: 2px solid var(--rove-accent, #80649f); outline-offset: 2px; }
+@media (max-width: 1080px) {
+  .code-top { padding-inline: 18px; }
+  .code-detail-scroll { padding: 18px; }
+  .task-form, .commit-form { padding: 15px 16px; }
+  .code-top .branch-label { max-width: 100px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .code-top button, .engine-status button, .code-footer button, .task-buttons button, .snapshot button, .diff-tools button, .commit-form button, .progress-strip button, .code-empty button { transition: none; }
+}
 </style>

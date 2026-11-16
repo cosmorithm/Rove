@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { StudyTurnMetadata, StudyTurnSource, StudyTurnVersion } from './studyContextTypes'
-const props = defineProps<{ source: StudyTurnSource; metadata: StudyTurnMetadata | null; version?: StudyTurnVersion; busy: boolean; error: string }>()
+import type { PreparedStudyContext, StudyTurnMetadata, StudyTurnSource, StudyTurnVersion } from './studyContextTypes'
+const props = defineProps<{ source: StudyTurnSource; metadata: StudyTurnMetadata | null; requestOverride?: PreparedStudyContext; version?: StudyTurnVersion; busy: boolean; error: string }>()
 const emit = defineEmits<{ retry: [] }>()
 const levels = [{ level: 'L0', label: '标题' }, { level: 'L1', label: '短摘要' }, { level: 'L2', label: '详细摘要' }] as const
 const cacheReady = computed(() => props.version?.state === 'ready' && levels.every(item => props.version?.summaries[item.level]?.text.trim()))
 const status = computed(() => props.busy ? '正在生成标题与摘要' : props.error || props.version?.state === 'failed' ? '缓存生成失败'
   : cacheReady.value ? 'L0 / L1 / L2 已缓存' : props.version?.state === 'ready' ? '待补充 L0 标题' : '尚未生成缓存')
-const request = computed(() => props.metadata?.request)
+const request = computed(() => props.requestOverride ?? props.metadata?.request)
 function date(value?: string) {
   if (!value) return ''
   const parsed = new Date(value)
@@ -16,7 +16,7 @@ function date(value?: string) {
 </script>
 
 <template>
-  <details class="study-turn-meta" aria-label="本轮对话元数据">
+  <details class="study-turn-meta" :class="{ 'cache-ready': cacheReady, 'cache-failed': !!error || version?.state === 'failed' }" aria-label="本轮对话元数据">
     <summary><b>对话元数据</b><span>{{ status }}</span></summary>
     <div class="metadata-body">
       <dl class="metadata-identifiers">
@@ -59,28 +59,62 @@ function date(value?: string) {
 </template>
 
 <style scoped>
-.study-turn-meta { margin:16px 0 12px; border:1px solid #dce4d6; border-radius:7px; background:#fbfcf8; }
-.study-turn-meta>summary { padding:9px 10px; cursor:pointer; color:#496345; font-size:11px; }
-.study-turn-meta>summary b { font-weight:600; }
-.study-turn-meta>summary>span { float:right; margin-left:8px; color:#7b8977; font-size:10px; }
-.metadata-body { padding:0 10px 10px; font-size:11px; line-height:1.6; }
-.metadata-identifiers { display:grid; grid-template-columns:auto 1fr; gap:3px 8px; margin:5px 0 10px; }
-.metadata-identifiers dt { color:#7a8875; }
-.metadata-identifiers dd { min-width:0; margin:0; color:#52654b; overflow-wrap:anywhere; font:10px/1.6 ui-monospace,monospace; }
-.summary-caches>details,.source-snapshot,.context-snapshot { border-top:1px solid #e3e9dd; padding:7px 0; }
-.metadata-body summary { cursor:pointer; color:#52694c; }
-.summary-caches small,.context-snapshot>summary>span { margin-left:7px; color:#88937f; font-size:10px; }
-.summary-text { margin:8px 0 5px; color:#40593b; white-space:pre-wrap; overflow-wrap:anywhere; }
-.cache-date { display:block; margin:4px 0 0!important; }
-.cache-error,.cache-warning { color:#96703c; overflow-wrap:anywhere; }
-.cache-warning { display:block; margin:4px 0 0!important; font-size:10px; }
-.cache-retry { padding:4px 8px; margin:1px 0 9px; border:1px solid #cfdbc6; border-radius:5px; background:#fff; color:#49673f; font:11px/1.4 -apple-system,BlinkMacSystemFont,sans-serif; cursor:pointer; }
-.cache-retry:disabled { cursor:default; opacity:.6; }
-.metadata-body h4 { font-size:10px; font-weight:500; color:#7d8c74; margin:8px 0 3px; }
-.metadata-body pre { margin:5px 0; padding:7px; max-height:240px; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; background:#f1f5ed; border-radius:4px; color:#42593d; font:10px/1.6 -apple-system,BlinkMacSystemFont,sans-serif; }
-.source-name,.version-note { margin:7px 0 2px; color:#87937e; font-size:10px; }
-.context-snapshot ol { padding-left:17px; }
-.context-snapshot li { margin:5px 0; }
-.context-snapshot li code { display:block; font:10px/1.5 ui-monospace,monospace; overflow-wrap:anywhere; }
-.context-snapshot li>span { color:#7d8c74; font-size:10px; }
+.study-turn-meta {
+  margin: 25px 0 12px;
+  border: 1px solid var(--rove-line, #e8e2ee);
+  border-radius: 10px;
+  background: #faf8fd;
+  color: var(--rove-text, #383342);
+}
+.study-turn-meta > summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px 8px;
+  padding: 12px 13px;
+  list-style: none;
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.study-turn-meta > summary::-webkit-details-marker { display: none; }
+.study-turn-meta > summary::before {
+  content: '';
+  flex: none;
+  width: 5px;
+  height: 5px;
+  margin-right: 2px;
+  border: solid #93889c;
+  border-width: 1.5px 1.5px 0 0;
+  transform: rotate(45deg);
+}
+.study-turn-meta[open] > summary::before { transform: rotate(135deg) translate(-1px, -1px); }
+.study-turn-meta > summary b { color: #5c5464; font-weight: 500; }
+.study-turn-meta > summary > span { margin-left: auto; color: var(--rove-muted, #82778e); font-size: 10px; }
+.cache-ready > summary > span { color: var(--rove-accent, #80649f); }
+.cache-failed > summary > span { color: #a16e42; }
+.study-turn-meta summary:focus-visible,.cache-retry:focus-visible { outline: 2px solid var(--rove-accent, #80649f); outline-offset: 3px; border-radius: 5px; }
+.metadata-body { min-width: 0; padding: 0 13px 9px; font-size: 11px; line-height: 1.7; }
+.metadata-identifiers { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 12px; margin: 5px 0 15px; }
+.metadata-identifiers dt { color: var(--rove-muted, #82778e); font-size: 10px; }
+.metadata-identifiers dd { min-width: 0; margin: 0; color: #645a6c; overflow-wrap: anywhere; font: 10px/1.7 ui-monospace, monospace; }
+.summary-caches > details,.source-snapshot,.context-snapshot { border-top: 1px solid var(--rove-line, #e8e2ee); padding: 11px 0; }
+.metadata-body summary { color: #615869; cursor: pointer; font-size: 11px; line-height: 1.7; }
+.summary-caches > details > summary { display: list-item; }
+.summary-caches small,.context-snapshot > summary > span { margin-left: 7px; color: #908599; font-size: 10px; }
+.summary-text { margin: 12px 0 7px; color: #554b5e; font-size: 12px; line-height: 1.8; white-space: pre-wrap; overflow-wrap: anywhere; }
+.cache-date { display: block; margin: 6px 0 0 !important; overflow-wrap: anywhere; font-size: 10px; }
+.cache-error,.cache-warning { color: #a16e42; overflow-wrap: anywhere; }
+.cache-error { padding: 9px 11px; border: 1px solid #efdfca; border-radius: 7px; background: #fcf7ef; font-size: 11px; }
+.cache-warning { display: block; margin: 5px 0 0 !important; font-size: 10px; }
+.cache-retry { min-height: 29px; margin: 0 0 13px; padding: 5px 9px; border: 1px solid #e1d6ec; border-radius: 6px; background: #fff; color: var(--rove-accent, #80649f); font: inherit; font-size: 11px; cursor: pointer; }
+.cache-retry:hover { background: #f4eff9; }
+.cache-retry:disabled { cursor: default; opacity: .5; }
+.metadata-body h4 { margin: 13px 0 5px; color: var(--rove-muted, #82778e); font-size: 10px; font-weight: 500; }
+.metadata-body pre { max-height: 240px; margin: 6px 0; padding: 10px; overflow: auto; border: 1px solid #e9e2f0; border-radius: 7px; background: #f4eff9; color: #5d5267; font: 11px/1.75 -apple-system, BlinkMacSystemFont, sans-serif; white-space: pre-wrap; overflow-wrap: anywhere; }
+.source-name,.version-note { margin: 9px 0 2px; color: var(--rove-muted, #82778e); font-size: 10px; overflow-wrap: anywhere; }
+.context-snapshot ol { padding-left: 17px; }
+.context-snapshot li { margin: 9px 0; }
+.context-snapshot li code { display: block; color: #645a6c; font: 10px/1.7 ui-monospace, monospace; overflow-wrap: anywhere; }
+.context-snapshot li > span { color: var(--rove-muted, #82778e); font-size: 10px; }
 </style>

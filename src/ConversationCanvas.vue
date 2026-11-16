@@ -1,19 +1,19 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import type { Block } from './library'
-import { cardTitle, type Card } from './types'
+import { answerText, cardTitle, type Card } from './types'
 import SafeMarkdown from './SafeMarkdown.vue'
 
 const props = withDefaults(defineProps<{ blocks: Block[]; selectedId?: string; selectedBlockId?: string; documentName: string; title?: string; rootLabel?: string; commits?: Record<string, string> }>(), {
-  title: '对话地图', rootLabel: '知识点'
+  title: '对话地图', rootLabel: '话题'
 })
 const emit = defineEmits<{ select: [id: string]; read: [blockId: string]; start: [blockId?: string] }>()
 const scroller = ref<HTMLElement>()
 const scale = ref(1)
 const focused = ref('')
 const nodeButtons = new Map<string, HTMLButtonElement>()
-const cardWidth = 226, cardHeight = 108, chapterWidth = 180, chapterHeight = 88
-const columnGap = 48, rowGap = 26, margin = 30
+const cardWidth = 244, cardHeight = 124, chapterWidth = 194, chapterHeight = 94
+const columnGap = 56, rowGap = 30, margin = 40
 
 function chapterTitle(block: Block) {
   return props.blocks.length === 1 && block.title === '准备开始学习' ? '整份资料' : summary(block.title)
@@ -161,7 +161,7 @@ async function zoom(next: number, center = true) {
 }
 function fit() {
   const view = scroller.value
-  if (view) void zoom(Math.min(1, view.clientWidth / graph.value.width, view.clientHeight / graph.value.height), false)
+  if (view) void zoom(Math.min(1, view.clientWidth / graph.value.width, Math.max(1, view.clientHeight - 32) / graph.value.height), false)
 }
 function revealSelection() {
   if (revealKey.value) void focusNode(revealKey.value)
@@ -177,17 +177,11 @@ watch(() => props.documentName, async () => { focused.value = ''; await zoom(1, 
       <div class="canvas-location"><h2>{{ title }}</h2></div>
       <div class="canvas-tools">
         <slot name="actions" />
-        <div v-if="graph.nodes.length" class="zoom-tools" aria-label="地图缩放">
-          <button type="button" aria-label="缩小" title="缩小" :disabled="scale <= .12" @click="zoom(Math.max(.12, scale / 1.2))">−</button>
-          <button type="button" class="zoom-value" aria-label="恢复原始大小" title="恢复原始大小" @click="zoom(1)">{{ Math.round(scale * 100) }}%</button>
-          <button type="button" aria-label="放大" title="放大" :disabled="scale >= 1.8" @click="zoom(scale * 1.2)">+</button>
-        </div>
-        <button v-if="graph.nodes.length" type="button" class="fit-tool" title="让整张地图适应视图" @click="fit">适应视图</button>
-        <button type="button" class="new-question" @click="emit('start')">新提问</button>
+        <button type="button" class="new-question" @click="emit('start')"><span aria-hidden="true">＋</span>新提问</button>
       </div>
     </header>
     <div v-if="!graph.nodes.length" class="canvas-empty">
-      <p>暂无知识点</p>
+      <p>暂无话题</p>
     </div>
     <div v-else ref="scroller" class="canvas-scroll">
       <div class="canvas-extent" :style="{ width: graph.width * scale + 'px', height: graph.height * scale + 'px' }">
@@ -196,7 +190,7 @@ watch(() => props.documentName, async () => { focused.value = ''; await zoom(1, 
             <path v-for="edge in graph.links" :key="edge.key" :d="edge.path" :class="{ current: selectedId === edge.child }" />
           </svg>
           <button v-for="node in graph.nodes" :key="node.key" :ref="el=>preserveButton(node.key,el)"
-            type="button" class="canvas-node" :class="node.card ? 'exchange-node' : 'chapter-node'"
+            type="button" class="canvas-node" :class="[node.card ? 'exchange-node' : 'chapter-node', { 'has-children': node.children.length, 'is-loading': node.card?.loading || node.card?.chatBusy }]"
             :data-node="node.key" :data-map-id="node.card?.id" :data-block-id="!node.card ? node.block.id : undefined" :aria-current="node.key === currentKey ? 'location' : undefined"
             :tabindex="tabStop === node.key ? 0 : -1"
             :style="{left:node.x+'px',top:node.y+'px',width:node.width+'px',height:node.height+'px'}"
@@ -204,7 +198,7 @@ watch(() => props.documentName, async () => { focused.value = ''; await zoom(1, 
             @click="node.card ? emit('select',node.card.id) : emit('read',node.block.id)">
             <template v-if="node.card">
               <span class="node-question" :title="node.card.question"><template v-if="node.card.studyContext?.title?.trim()">{{ cardTitle(node.card) }}</template><SafeMarkdown v-else inline :text="summary(node.card.question) || '未命名提问'" /></span>
-              <span class="node-answer"><SafeMarkdown inline :text="node.card.loading ? '正在回答…' : summary(node.card.editedAnswer ?? node.card.answer) || '暂无回答'" /></span>
+              <span class="node-answer"><SafeMarkdown inline :text="node.card.loading ? '正在回答…' : summary(answerText(node.card)) || '暂无回答'" /></span>
               <small v-if="commits?.[node.card.id]" class="node-commit">{{ commits[node.card.id].slice(0, 8) }}</small>
             </template>
             <template v-else>
@@ -216,41 +210,197 @@ watch(() => props.documentName, async () => { focused.value = ''; await zoom(1, 
         </div>
       </div>
     </div>
+    <div v-if="graph.nodes.length" class="canvas-navigation">
+      <div class="zoom-tools" aria-label="地图缩放">
+        <button type="button" aria-label="缩小" title="缩小" :disabled="scale <= .12" @click="zoom(Math.max(.12, scale / 1.2))">−</button>
+        <button type="button" class="zoom-value" aria-label="恢复原始大小" title="恢复原始大小" @click="zoom(1)">{{ Math.round(scale * 100) }}%</button>
+        <button type="button" aria-label="放大" title="放大" :disabled="scale >= 1.8" @click="zoom(scale * 1.2)">+</button>
+      </div>
+      <button type="button" class="fit-tool" title="让整张地图适应视图" @click="fit">适应视图</button>
+    </div>
   </section>
 </template>
 
 <style scoped>
-.conversation-canvas { display:flex; flex-direction:column; flex:1; min-height:0; min-width:0; height:100%; color:#233a30; background:#f6f7f3; }
-.canvas-bar { position:relative; z-index:2; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px 14px; padding:13px 18px; border-bottom:1px solid #dce3da; background:#fbfcf9; }
-.canvas-location,.canvas-tools,.zoom-tools { display:flex; align-items:center; }
-.canvas-location { min-width:0; gap:12px; flex:1; }
-.canvas-location h2 { flex:none; margin:0; color:#263e30; font:600 15px/1.3 -apple-system,BlinkMacSystemFont,sans-serif; }
-.canvas-tools { gap:7px; }
-.canvas-bar button { border:1px solid #d4dcd4; border-radius:6px; background:#fff; color:#3f5346; font:500 12px/1.4 -apple-system,BlinkMacSystemFont,sans-serif; cursor:pointer; }
-.canvas-bar button:hover { background:#edf2ec; }
-.canvas-bar button:disabled { opacity:.4; cursor:default; }
-.zoom-tools { background:white; border:1px solid #d4dcd4; border-radius:6px; overflow:hidden; }
-.zoom-tools button { border:0; border-radius:0; min-width:26px; height:26px; padding:0 6px; }
-.zoom-tools .zoom-value { min-width:40px; font-variant-numeric:tabular-nums; font-size:11px; }
-.fit-tool,.new-question { padding:4px 9px; min-height:28px; }
-.canvas-bar .new-question { background:#e5eee4; color:#335640; border-color:#bfcfc0; }
-.canvas-scroll,.canvas-empty { overflow:auto; flex:1; min-height:0; min-width:0; overscroll-behavior:contain; background-image:radial-gradient(#97a59755 .8px,transparent .9px); background-size:16px 16px; }
-.canvas-scroll { display:flex; }
-.canvas-extent { flex:none; margin:auto; position:relative; overflow:hidden; }
-.canvas-plane { position:absolute; top:0; left:0; transform-origin:0 0; }
-.canvas-edges { position:absolute; inset:0; overflow:visible; pointer-events:none; fill:none; stroke:#a6b6a8; stroke-width:1.55; }
-.canvas-edges .current { stroke:#64886d; stroke-width:2.2; }
-.canvas-node { position:absolute; box-sizing:border-box; display:flex; flex-direction:column; justify-content:center; gap:7px; min-width:0; padding:12px 14px; text-align:left; color:#2c4133; border:1px solid #d1dbd1; background:#fff; border-radius:10px; box-shadow:0 2px 5px #3145370c; cursor:pointer; }
-.canvas-node:hover { border-color:#97af9d; box-shadow:0 2px 8px #31453718; }
-.canvas-node[aria-current] { background:#f2f8f0; border-color:#769b7d; box-shadow:0 0 0 2px #d3e3d1; }
-.canvas-node:focus-visible,.canvas-bar button:focus-visible { outline:2px solid #4f7a5c; outline-offset:-2px; }
-.node-question,.node-answer { display:-webkit-box; overflow:hidden; overflow-wrap:anywhere; -webkit-box-orient:vertical; -webkit-line-clamp:2; line-height:1.43; }
-.node-question { font-size:13px; font-weight:600; color:#263b2d; }
-.node-answer { color:#5b695e; font-size:12px; font-weight:400; }
-.node-commit { color:#63806a; font:10px/1.2 ui-monospace,monospace; }
-.chapter-node { background:#e9efe5; border-color:#c4d1bf; border-radius:9px; padding-right:22px; }
-.chapter-label { font-size:10px; color:#526b56; }
-.chapter-read { position:absolute; right:8px; top:6px; color:#57735b; font-size:14px; }
-.canvas-empty { display:grid; place-items:center; padding:30px; color:#647568; font-size:13px; }
-.canvas-sr { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
+.conversation-canvas {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  height: 100%;
+  color: var(--rove-text, #383342);
+  background: var(--rove-canvas, #f8f7fc);
+}
+.canvas-bar {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  flex: none;
+  gap: 10px 16px;
+  padding: 20px 26px 12px;
+  background: var(--rove-canvas, #f8f7fc);
+}
+.canvas-location, .canvas-tools, .zoom-tools, .canvas-navigation {
+  display: flex;
+  align-items: center;
+}
+.canvas-location { flex: 1; min-width: 0; }
+.canvas-location h2 {
+  margin: 0;
+  color: var(--rove-muted, #82778e);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.5;
+  letter-spacing: .02em;
+}
+.canvas-tools { gap: 8px; }
+.canvas-bar button, .canvas-navigation button {
+  border: 1px solid var(--rove-line, #e8e2ee);
+  border-radius: 8px;
+  background: var(--rove-surface, #fff);
+  color: #5f5469;
+  font: 500 12px/1.4 -apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif;
+  cursor: pointer;
+  transition: background .15s ease, border-color .15s ease, box-shadow .15s ease;
+}
+.canvas-bar button:hover, .canvas-navigation button:hover { background: #f3eff9; }
+.canvas-bar button:disabled, .canvas-navigation button:disabled { opacity: .35; cursor: default; }
+.canvas-bar .new-question {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 32px;
+  padding: 5px 12px 5px 9px;
+  color: #fff;
+  border-color: var(--rove-accent, #80649f);
+  background: var(--rove-accent-strong, #756095);
+  box-shadow: 0 1px 2px #2a252f16, inset 0 1px 0 #ffffff1a;
+}
+.new-question span { font-size: 17px; font-weight: 400; line-height: 1; }
+.canvas-bar .new-question:hover { background: #6f558c; border-color: #6f558c; }
+.canvas-scroll, .canvas-empty {
+  overflow: auto;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overscroll-behavior: contain;
+  background-image: radial-gradient(#bab1c277 .65px, transparent .85px);
+  background-size: 24px 24px;
+  background-position: 12px 12px;
+}
+.canvas-scroll { display: flex; padding-bottom: 32px; }
+.canvas-extent { flex: none; margin: auto; position: relative; overflow: visible; }
+.canvas-plane { position: absolute; top: 0; left: 0; transform-origin: 0 0; }
+.canvas-edges {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+  pointer-events: none;
+  fill: none;
+  stroke: #d1c6dd;
+  stroke-width: 1.4;
+}
+.canvas-edges .current { stroke: #a18aba; stroke-width: 1.8; }
+.canvas-node {
+  position: absolute;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 16px 18px;
+  text-align: left;
+  color: var(--rove-text, #383342);
+  border: 1px solid #e0d5ea;
+  border-radius: 13px;
+  background: var(--rove-surface, #fff);
+  box-shadow: 0 2px 3px #2f293403, 0 6px 14px #2f293405;
+  cursor: pointer;
+  transition: border-color .15s ease, box-shadow .15s ease, background .15s ease;
+}
+.canvas-node:hover { border-color: #baa9ce; box-shadow: 0 3px 5px #2f293406, 0 8px 20px #2f29340a; }
+.canvas-node[aria-current] {
+  background: #fefcff;
+  border-color: var(--rove-accent, #80649f);
+  box-shadow: 0 0 0 3px #80649f12, 0 5px 18px #3a334110;
+}
+.exchange-node::before, .has-children::after {
+  content: '';
+  position: absolute;
+  top: calc(50% - 3px);
+  width: 6px;
+  height: 6px;
+  border: 1px solid #d1c6dd;
+  border-radius: 50%;
+  background: var(--rove-surface, #fff);
+}
+.exchange-node::before { left: -4px; }
+.has-children::after { right: -4px; }
+.canvas-node[aria-current]::before, .canvas-node[aria-current]::after { border-color: #9577b5; background: #b49ecb; }
+.canvas-node:focus-visible, .canvas-bar button:focus-visible, .canvas-navigation button:focus-visible {
+  outline: 2px solid var(--rove-accent, #80649f);
+  outline-offset: 3px;
+}
+.node-question, .node-answer {
+  display: -webkit-box;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.node-question { color: #3a3440; font-size: 13px; font-weight: 600; line-height: 1.5; letter-spacing: -.01em; }
+.node-answer { color: #81758c; font-size: 12px; font-weight: 400; line-height: 1.55; }
+.node-commit { color: #84788f; font: 10px/1.3 ui-monospace, SFMono-Regular, monospace; }
+.canvas-node:has(.node-commit) .node-question { -webkit-line-clamp: 1; }
+.is-loading .node-answer { color: var(--rove-accent, #80649f); }
+.chapter-node {
+  padding: 16px 24px 16px 18px;
+  color: #59466e;
+  background: #eee8f7;
+  border-color: #ded3ec;
+  box-shadow: 0 2px 5px #45325606, 0 7px 18px #45325606;
+}
+.chapter-node:hover { background: #e8e0f3; border-color: #cbbbdf; }
+.chapter-node[aria-current] {
+  background: #eee8f7;
+  border-color: #ae94c7;
+  box-shadow: 0 0 0 3px #a38bbb16, 0 6px 20px #4532560b;
+}
+.chapter-node .node-question { color: #59466e; font-size: 14px; line-height: 1.45; }
+.chapter-label { color: #9b87b0; font-size: 10px; line-height: 1; font-weight: 500; }
+.chapter-read { position: absolute; right: 12px; top: 11px; color: #9b87b0; font-size: 14px; }
+.canvas-navigation {
+  position: absolute;
+  z-index: 3;
+  bottom: 20px;
+  left: 22px;
+  gap: 1px;
+  padding: 4px;
+  border: 1px solid #e0d5ea;
+  border-radius: 10px;
+  background: #ffffffed;
+  backdrop-filter: blur(14px);
+  box-shadow: 0 2px 5px #322c3705, 0 5px 16px #322c3708;
+}
+.zoom-tools { gap: 1px; }
+.canvas-navigation button { height: 28px; padding: 0 8px; border: 0; border-radius: 6px; background: transparent; }
+.zoom-tools button { min-width: 26px; font-size: 16px; font-weight: 400; }
+.zoom-tools .zoom-value { min-width: 46px; color: #62586a; font-variant-numeric: tabular-nums; font-size: 11px; }
+.canvas-navigation .fit-tool { margin-left: 4px; padding-left: 12px; border-left: 1px solid #e6deee; border-radius: 0 5px 5px 0; font-size: 11px; }
+.canvas-empty { display: grid; place-items: center; padding: 30px; color: var(--rove-muted, #82778e); font-size: 13px; }
+.canvas-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+@media (max-width: 1080px) {
+  .canvas-bar { padding: 16px 18px 10px; }
+  .canvas-navigation { left: 16px; bottom: 16px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .canvas-node, .canvas-bar button, .canvas-navigation button { transition: none; }
+}
 </style>

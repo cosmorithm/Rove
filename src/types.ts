@@ -1,4 +1,4 @@
-import type { StudyContextSelection } from './studyContextTypes'
+import type { PreparedStudyContext, StudyContextSelection, StudyTurnSource } from './studyContextTypes'
 
 export type AnswerVersion = 'original' | 'edited'
 
@@ -6,6 +6,28 @@ export interface AnswerClip {
   id: string
   text: string
   version: AnswerVersion
+  answerRevisionId?: string
+}
+
+export interface ChatAnswerApproval {
+  id: string
+  /** Half-open UTF-16 range in the exact source revision. */
+  start: number
+  end: number
+  text: string
+  createdAt: string
+}
+
+export interface ChatAnswerRevision {
+  readonly id: string
+  readonly text: string
+  readonly kind: 'original' | 'edit' | 'polish'
+  /** Legacy answers retain an unknown creation time until a new revision is produced. */
+  readonly createdAt?: string
+  readonly instruction?: string
+  readonly baseRevisionId?: string
+  readonly request?: PreparedStudyContext
+  approvals?: ChatAnswerApproval[]
 }
 
 export interface StudyContextRef {
@@ -22,6 +44,16 @@ export interface Card {
   question: string
   answer: string
   editedAnswer?: string
+  answerRevisions?: ChatAnswerRevision[]
+  activeAnswerId?: string
+  /** Immutable ancestor sources captured when this Chat node was created. */
+  contextAncestors?: StudyTurnSource[]
+  /** The actual context used for the node's first answer. Later polish keeps its own request. */
+  contextSnapshot?: PreparedStudyContext
+  parentAnswerRevisionId?: string
+  /** A transient UI lock, excluded from persistence. */
+  chatBusy?: boolean
+  polishError?: string
   studyContext?: StudyContextRef
   excerpt: string
   excerptVersion?: AnswerVersion
@@ -34,6 +66,11 @@ export interface Card {
 }
 
 export function answerText(card: Card, version?: AnswerVersion): string {
+  if (version === undefined && card.activeAnswerId) {
+    const selected = card.answerRevisions?.find(item => item.id === card.activeAnswerId)
+    if (selected) return selected.text
+    if (card.activeAnswerId === 'original') return card.answer
+  }
   return version === 'original' ? card.answer : card.editedAnswer ?? card.answer
 }
 
@@ -47,5 +84,7 @@ export interface CardQuestion {
   question: string
   excerpt: string
   parentAnswer: string
+  parentAnswerRevisionId?: string
+  parentAnswerVersion?: AnswerVersion
   excerptVersion?: AnswerVersion
 }
