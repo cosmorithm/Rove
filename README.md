@@ -4,6 +4,19 @@ Rove explores a graph-based way to work with AI. Start from a question, follow a
 
 Rove brings Chat and Coding into one macOS application. Chat lets you explore any question, develop ideas, and branch into different directions. Start a conversation immediately, or optionally import a PDF as reference material. Coding connects branching conversations to a local Git project and DeepSeek Harness (dsh). A map holds your questions and their relationships, while a side reader displays conversations, reference material, code, and changes.
 
+## Install with an AI agent
+
+Give your agent the following prompt. The [agent installation guide](AGENT_INSTALL.md) covers prerequisites, locked dependencies, Electron installation, model configuration, macOS packaging, verification, and troubleshooting.
+
+```text
+Install Rove from https://github.com/cosmorithm/Rove.
+Read AGENT_INSTALL.md in the repository and follow its installation steps.
+Use the existing checkout if I supplied one, preserve its settings, and build the macOS Electron app.
+Report the application path, checks completed, and any pending GUI or model verification.
+```
+
+For manual installation, see [Run locally](#run-locally) and [Build the macOS app](#build-the-macos-app).
+
 ## Branching exploration
 
 A linear harness carries one conversation forward. Rove lets you branch from any turn, revisit earlier nodes, and continue along a different path.
@@ -82,7 +95,7 @@ The prototype stores questions through parent–child links. Chat uses user-sele
 | Math rendering | KaTeX | LaTeX formulas in explanations, questions, and excerpts |
 | Markdown | Marked with a custom Vue renderer | Markdown parsing and rendered content |
 | Local persistence | Chromium localStorage, local metadata/cache files, PDF files, and IndexedDB for older imports | Saved questions, revisions, excerpts, source documents, and request context snapshots |
-| AI integration | OpenAI-compatible Chat Completions API | Configurable model provider through `.env` |
+| AI integration | OpenAI-compatible Chat Completions and native Claude Messages | Provider presets, model discovery, connection checks, and `.env` configuration |
 | Coding engine | DeepSeek Harness (`@deepseek-ai/dsh`) | Code questions and implementations in the selected workspace; optional branches in a user-selected directory |
 | Coding runtime | Node.js 24.22.1 and npm 11.6.2 | Bundled standalone runtime for DSH and JavaScript project commands |
 | Code versioning | Git | Per-turn commits, immutable code snapshots, branch worktrees, and diffs |
@@ -95,7 +108,7 @@ Use macOS and Node.js **24.9 or newer**. From a fresh checkout, run these comman
 
 ```sh
 npm ci
-cp .env.example .env
+test -e .env || cp .env.example .env
 npm run dev
 ```
 
