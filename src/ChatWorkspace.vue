@@ -434,12 +434,18 @@ async function retryTurnCache() {
   await saveTurnCache(current.card, source, () => snapshotSource(current.card, { id: source.document.blockId, title: source.document.title },
     { id: source.document.id, name: source.document.name }, source.parentId))
 }
-function selectMappedCard(id: string) {
+const answerCard = ref<InstanceType<typeof QuestionCard>>()
+async function editMappedCard(id: string, anchor: HTMLElement) {
+  selectMappedCard(id, false)
+  await nextTick()
+  if (selectedCardId.value === id) await answerCard.value?.editAnswer(anchor)
+}
+function selectMappedCard(id: string, openReader = true) {
   selectedView.value = undefined
   selectedCardId.value = id
   if (!mapped.value) return
   selectedBlockId.value = mapped.value.block.id
-  readerOpen.value = true
+  if (openReader) readerOpen.value = true
   readerTab.value = 'content'
   clearSelection()
 }
@@ -646,8 +652,8 @@ function removeCard(card: Card) {
       </header>
       <div v-if="error" class="error-bar" role="alert">{{ error }} <button aria-label="关闭提示" @click="error=''">×</button></div>
       <div class="workspace map-workspace" aria-label="对话地图">
-        <ConversationCanvas :key="note.id" :document-name="documentName" :blocks="blocks" :selected-id="selectedCardId" :selected-block-id="readerOpen ? selectedBlockId : undefined"
-          @select="selectMappedCard" @read="readBlock" @start="startQuestion">
+        <ConversationCanvas :key="note.id" :layout-key="'chat:' + note.id" :document-name="documentName" :blocks="blocks" :selected-id="selectedCardId" :selected-block-id="readerOpen ? selectedBlockId : undefined"
+          editable-answers @select="selectMappedCard" @edit="editMappedCard" @read="readBlock" @start="startQuestion">
           <template #actions>
             <button v-if="pdf && !hasKnowledge" class="generate" :disabled="generating" @click="generateKnowledge">{{ generating ? '正在整理…' : '整理资料' }}</button>
           </template>
@@ -673,7 +679,7 @@ function removeCard(card: Card) {
             <div v-if="readerTab === 'content'" :key="selectedCardId || selectedBlockId" class="map-detail-scroll">
               <template v-if="mapped">
                 <button type="button" class="reader-parent" @click="readBlock(mapped.block.id)">← <SafeMarkdown inline :text="headingText(mapped.block.title)" /></button>
-                <QuestionCard :key="mapped.card.id" chat standalone :revision-id="selectedView?.nodeId === mapped.card.id ? selectedView.revisionId : undefined" :card="mapped.card" :page-count="pageCount" :selected-id="selectedCardId"
+                <QuestionCard ref="answerCard" :key="mapped.card.id" chat standalone :revision-id="selectedView?.nodeId === mapped.card.id ? selectedView.revisionId : undefined" :card="mapped.card" :page-count="pageCount" :selected-id="selectedCardId"
                   @source="showSource" @ask="branchFrom(mapped.block, $event)" @remove="removeCard"
                   @polish="polishCard" @view-revision="selectedView={nodeId:mapped.card.id,revisionId:$event}" />
                 <StudyContextPanel v-if="selectedTurnSource" :source="selectedTurnSource" :metadata="contextMetadata" :version="selectedTurnVersion" :request-override="selectedChatRevision?.request"

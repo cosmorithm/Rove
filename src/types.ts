@@ -46,6 +46,8 @@ export interface Card {
   editedAnswer?: string
   answerRevisions?: ChatAnswerRevision[]
   activeAnswerId?: string
+  /** Unpublished manual edits, keyed by the exact answer version they started from. */
+  answerDrafts?: Record<string, string>
   /** Immutable ancestor sources captured when this Chat node was created. */
   contextAncestors?: StudyTurnSource[]
   /** The actual context used for the node's first answer. Later polish keeps its own request. */

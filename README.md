@@ -43,7 +43,7 @@ Rove is an early prototype. The current interface is primarily in Chinese; Chat 
 
 You can select text or formulas from an answer, save excerpts, and use them in follow-up questions. Answers support Markdown and LaTeX rendering. In Chat, leaf nodes support AI polish and manual revisions, with every completed version available to revisit. Once a node has children, its active answer is fixed. Follow-ups retain the chosen parent answer version and ancestor sources.
 
-The map supports zoom, fit-to-view, and keyboard navigation. Both the library sidebar and the reading sidebar have draggable dividers, remember their widths, and return to their default widths on double-click. **Appearance settings** offers lavender, paper, blue, and sage palettes, adjustable text size, font family, weight, and contrast. Changes apply to both workspaces immediately and are remembered locally. The default uses darker text and a larger reading size.
+The map supports blank-space dragging to pan, zoom, fit-to-view, and keyboard navigation. Drag a node to move only that node; its connections follow without changing conversation ancestry. Positions are saved locally per Chat conversation or Coding project. Click a node to read it, use Alt + arrow keys to adjust its position (Shift for a larger step), or choose **Automatic layout** to reset the current map. Both the library sidebar and the reading sidebar have draggable dividers, remember their widths, and return to their default widths on double-click. **Appearance settings** offers lavender, paper, blue, and sage palettes, adjustable text size, font family, weight, and contrast. Changes apply to both workspaces immediately and are remembered locally. The default uses darker text and a larger reading size.
 
 ## Chat context
 

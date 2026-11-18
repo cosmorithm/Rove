@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, shallowRef, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, shallowRef, watch } from 'vue'
 import SafeMarkdown from './SafeMarkdown.vue'
+import NodeAnswerEditor from './NodeAnswerEditor.vue'
 import { selectedAnswerText } from './selectedText'
 import { answerText, type AnswerClip, type AnswerVersion, type Card, type CardQuestion } from './types'
 import {
@@ -29,6 +30,9 @@ const busy = computed(() => !!props.card.loading || !!props.chat && !!props.card
 const leaf = computed(() => props.card.children.length === 0)
 const answerElement = ref<HTMLElement>()
 const editorElement = ref<HTMLTextAreaElement>()
+const blockEditor = ref<InstanceType<typeof NodeAnswerEditor>>()
+const editDialog = ref<HTMLDialogElement>()
+const editAnchor = shallowRef<HTMLElement>()
 const inputElement = ref<HTMLTextAreaElement>()
 const editDraft = ref<string | null>(null)
 const editing = ref(false)
@@ -42,6 +46,9 @@ const parentContext = ref('')
 const parentRevisionId = ref<string>()
 const parentAnswerVersion = ref<AnswerVersion>()
 const editBaseRevisionId = ref<string>()
+const hasDraft = computed(() => props.chat
+  ? typeof props.card.answerDrafts?.[currentRevision.value.id] === 'string'
+  : editDraft.value !== null)
 const operationError = ref('')
 const polishOpen = ref(false)
 const polishInstruction = ref('')
@@ -56,7 +63,7 @@ watch(() => props.card.activeAnswerId, () => {
   emit('view-revision', viewRevisionId.value)
   selection.value = null
   reviewRange.value = undefined
-  editing.value = false
+  suspendChatEdit()
   polishOpen.value = false
   polishInstruction.value = ''
 })
@@ -65,7 +72,7 @@ watch(() => props.revisionId, id => {
   viewRevisionId.value = id
   selection.value = null
   reviewRange.value = undefined
-  editing.value = false
+  suspendChatEdit()
   emit('view-revision', id)
 }, { immediate: true })
 
@@ -94,28 +101,108 @@ function switchChatVersion(id: string) {
     emit('view-revision', id)
     selection.value = null
     reviewRange.value = undefined
-    editing.value = false
+    suspendChatEdit()
     operationError.value = ''
   } catch (error) { reportError(error) }
 }
-async function editAnswer() {
+// Bind an unpublished draft to its source revision. Only explicit save creates a revision.
+let draftTimer: ReturnType<typeof setTimeout> | undefined
+let dialogObserver: ResizeObserver | undefined
+function dropStoredDraft(id: string) {
+  const drafts = props.card.answerDrafts
+  if (!drafts || !Object.hasOwn(drafts, id)) return
+  delete drafts[id]
+  if (!Object.keys(drafts).length) delete props.card.answerDrafts
+}
+function flushDraft() {
+  clearTimeout(draftTimer)
+  const id = editBaseRevisionId.value
+  if (!props.chat || !id || editDraft.value === null) return
+  const base = getChatAnswerRevision(props.card, id)
+  if (!base) return
+  if (base.text === editDraft.value) dropStoredDraft(id)
+  else (props.card.answerDrafts ??= {})[id] = editDraft.value
+}
+function updateDraft(text: string) {
+  if (busy.value || !leaf.value) return
+  editDraft.value = text
+  clearTimeout(draftTimer)
+  draftTimer = setTimeout(flushDraft, 400)
+}
+function closeChatEditor() {
+  clearTimeout(draftTimer)
+  window.removeEventListener('pagehide', flushDraft)
+  window.removeEventListener('resize', placeDialog)
+  dialogObserver?.disconnect()
+  dialogObserver = undefined
+  const anchor = editAnchor.value
+  if (anchor) editDialog.value?.close()
+  editAnchor.value = undefined
+  editing.value = false
+  editDraft.value = null
+  editBaseRevisionId.value = undefined
+  if (anchor?.isConnected) anchor.focus({ preventScroll: true })
+}
+function suspendChatEdit() {
+  if (!editing.value) return
+  flushDraft()
+  closeChatEditor()
+}
+onBeforeUnmount(() => {
+  flushDraft()
+  dialogObserver?.disconnect()
+  window.removeEventListener('pagehide', flushDraft)
+  window.removeEventListener('resize', placeDialog)
+})
+function placeDialog() {
+  const dialog = editDialog.value, anchor = editAnchor.value
+  if (!dialog || !anchor) return
+  const bounds = anchor.getBoundingClientRect()
+  const gap = 12
+  const width = dialog.offsetWidth
+  const preferred = bounds.right + gap + width <= window.innerWidth ? bounds.right + gap : bounds.left - gap - width
+  dialog.style.left = Math.max(gap, Math.min(preferred, window.innerWidth - width - gap)) + 'px'
+  dialog.style.top = Math.max(gap, Math.min(bounds.top, window.innerHeight - dialog.offsetHeight - gap)) + 'px'
+}
+async function editAnswer(anchor?: HTMLElement) {
   if (busy.value || props.chat && !leaf.value) return
-  if (props.chat && editDraft.value === null) editBaseRevisionId.value = currentRevision.value.id
+  if (props.chat) {
+    const id = currentRevision.value.id
+    if (editBaseRevisionId.value !== id) editDraft.value = props.card.answerDrafts?.[id] ?? visibleAnswer.value
+    editBaseRevisionId.value = id
+    editAnchor.value = anchor
+    window.addEventListener('pagehide', flushDraft)
+    polishOpen.value = false
+  }
   editDraft.value ??= visibleAnswer.value
   editing.value = true
+  operationError.value = ''
   selection.value = null
   await nextTick()
-  editorElement.value?.focus()
+  if (editAnchor.value && editDialog.value) {
+    editDialog.value.showModal()
+    placeDialog()
+    dialogObserver = new ResizeObserver(placeDialog)
+    dialogObserver.observe(editDialog.value)
+    window.addEventListener('resize', placeDialog)
+  }
+  if (props.chat) blockEditor.value?.focus()
+  else editorElement.value?.focus()
 }
+defineExpose({ editAnswer })
 function saveEdit() {
   if (busy.value || editDraft.value === null || !editDraft.value.trim()) return
   if (props.chat) {
     try {
+      if (!leaf.value || !editBaseRevisionId.value) return
+      if (getChatAnswerRevision(props.card, editBaseRevisionId.value)?.text === editDraft.value) {
+        cancelEdit()
+        return
+      }
       const saved = appendChatAnswerRevision(props.card, { text: editDraft.value, kind: 'edit', baseRevisionId: editBaseRevisionId.value })
+      dropStoredDraft(editBaseRevisionId.value)
       viewRevisionId.value = saved.id
-      editDraft.value = null
-      editBaseRevisionId.value = undefined
-      editing.value = false
+      closeChatEditor()
       selection.value = null
       operationError.value = ''
     } catch (error) { reportError(error) }
@@ -126,6 +213,11 @@ function saveEdit() {
   switchVersion('edited')
 }
 function cancelEdit() {
+  if (props.chat) {
+    if (editBaseRevisionId.value) dropStoredDraft(editBaseRevisionId.value)
+    closeChatEditor()
+    return
+  }
   editing.value = false
   editDraft.value = null
   editBaseRevisionId.value = undefined
@@ -193,7 +285,7 @@ function submit() {
 }
 async function beginPolish() {
   if (busy.value || !leaf.value) return
-  editing.value = false
+  suspendChatEdit()
   polishOpen.value = true
   await nextTick()
   polishInput.value?.focus()
@@ -276,12 +368,30 @@ function revokeApproval(id: string) {
             <button type="button" :aria-pressed="version === 'original'" @click="switchVersion('original')">原回答</button>
             <button type="button" :aria-pressed="version === 'edited'" @click="switchVersion('edited')">修订版</button>
           </div>
-          <button v-if="!editing && (!chat || leaf)" type="button" class="edit-link" :disabled="busy" @click="editAnswer">{{ editDraft !== null ? '继续编辑' : '编辑回答' }}</button>
+          <button v-if="!editing && (!chat || leaf)" type="button" class="edit-link" :disabled="busy" @click="editAnswer()">{{ hasDraft ? '继续编辑' : '编辑回答' }}</button>
         </div>
         <p v-if="chat && !leaf" class="chat-frozen-note">此节点已展开，回答版本已固定</p>
         <p v-if="chat && card.chatBusy" class="chat-polish-status" role="status"><i aria-hidden="true"></i>正在打磨，完成后保存为新版本…</p>
         <p v-if="chat && (operationError || card.polishError)" class="chat-operation-error" role="alert">{{ operationError || card.polishError }}</p>
-        <div v-if="editing" class="answer-editor">
+        <Teleport v-if="editing && chat" to="body" :disabled="!editAnchor">
+          <component :is="editAnchor ? 'dialog' : 'div'" ref="editDialog" :class="{'map-edit-dialog':editAnchor}" aria-label="编辑节点回答"
+            @cancel.prevent="suspendChatEdit">
+            <header v-if="editAnchor" class="map-edit-heading">
+              <strong>{{ autoTitle || card.question }}</strong>
+              <button type="button" aria-label="收起编辑并保留草稿" title="收起编辑并保留草稿" @click="suspendChatEdit">×</button>
+            </header>
+            <div class="block-editor-scroll">
+              <NodeAnswerEditor ref="blockEditor" :model-value="editDraft ?? ''" :disabled="busy || !leaf" @update:model-value="updateDraft" @save="saveEdit" />
+            </div>
+            <div class="edit-actions block-edit-actions">
+              <span v-if="editAnchor && operationError" role="alert">{{ operationError }}</span>
+              <button v-if="!editAnchor" type="button" @click="switchVersion('original')">查看原回答</button>
+              <button type="button" @click="cancelEdit">取消编辑</button>
+              <button type="button" class="primary" :disabled="!editDraft?.trim() || busy || !leaf" @click="saveEdit">保存修订</button>
+            </div>
+          </component>
+        </Teleport>
+        <div v-else-if="editing" class="answer-editor">
           <textarea ref="editorElement" v-model="editDraft" aria-label="修订回答" rows="6" :disabled="busy || chat && !leaf" @keydown.meta.enter.prevent="saveEdit" @keydown.ctrl.enter.prevent="saveEdit"></textarea>
           <div class="edit-actions">
             <button type="button" :disabled="busy" @click="switchVersion('original')">查看原回答</button>
@@ -441,6 +551,20 @@ function revokeApproval(id: string) {
 .versions button { min-height: 23px; padding: 3px 7px; color: var(--rove-accent-strong); font-size: calc(11px * var(--rove-font-scale, 1)); }
 .versions button[aria-pressed=true] { color: var(--rove-text); background: var(--rove-surface); box-shadow: 0 1px 3px color-mix(in srgb, var(--rove-text) 8.6%, transparent); }
 .edit-link { margin-left: auto; }
+.map-edit-dialog {
+  position: fixed; inset: auto; margin: 0; padding: 0; width: min(500px, calc(100vw - 24px));
+  max-width: calc(100vw - 24px); max-height: calc(100dvh - 24px); box-sizing: border-box;
+  color: var(--rove-text); background: var(--rove-surface); border: 1px solid var(--rove-line);
+  border-radius: 14px; box-shadow: 0 12px 48px #21162d26; font: inherit;
+}
+.map-edit-dialog[open] { display: flex; flex-direction: column; }
+.map-edit-dialog::backdrop { background: color-mix(in srgb, var(--rove-text) 9%, transparent); }
+.map-edit-heading { display: flex; align-items: center; gap: 12px; padding: 12px 15px; border-bottom: 1px solid var(--rove-line); }
+.map-edit-heading strong { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 1rem; font-weight: 600; }
+.map-edit-heading button { border: 0; background: transparent; color: var(--rove-secondary); font: inherit; font-size: 1.3rem; cursor: pointer; }
+.map-edit-dialog .block-editor-scroll { padding: 14px; min-height: 0; overflow: auto; max-height: min(60dvh, 540px); }
+.map-edit-dialog .block-edit-actions { margin: 0; padding: 10px 14px; border-top: 1px solid var(--rove-line); }
+.block-edit-actions [role="alert"] { flex-basis: 100%; color: #a16b72; }
 .answer-editor textarea,.followup textarea {
   display: block;
   width: 100%;

@@ -475,7 +475,7 @@ function removeNode(card: Card) {
       <div v-if="!project" class="code-empty"><div><h1>打开项目文件夹</h1><p>Rove 会为普通文件夹自动初始化 Git。</p>
         <button type="button" class="code-primary" :disabled="mutation" @click="openProject">选择项目文件夹</button></div></div>
       <div v-else class="code-body">
-        <ConversationCanvas title="探索地图" root-label="工作区" :document-name="project.name" :blocks="book?.blocks || []" :commits="commits" :selected-id="selectedId" :selected-block-id="selectedBlock"
+        <ConversationCanvas :key="project.id" :layout-key="'coding:' + project.id" title="探索地图" root-label="工作区" :document-name="project.name" :blocks="book?.blocks || []" :commits="commits" :selected-id="selectedId" :selected-block-id="selectedBlock"
           @select="selectNode" @read="selectRoot" @start="focusPrompt" />
         <ResizableSidebar v-show="panel" side="right" storage-key="rove-code-detail" :initial-width="425" :min-width="250" :reserved-width="290" label="调整 Coding 侧栏宽度">
           <aside class="code-inspector">
