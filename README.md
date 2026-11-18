@@ -21,6 +21,8 @@ For manual installation, see [Run locally](#run-locally) and [Build the macOS ap
 
 Copy this prompt into your coding agent on the Mac where you use Rove. If you know the path to your checkout or `Rove.app`, include it.
 
+On startup, a build with a known Git revision checks GitHub once. When `main` is ahead of that revision, **有可用更新** appears at the bottom of the left sidebar in Chat and Coding. Click it to open this guide. You choose when to update.
+
 ```text
 Update my existing Rove desktop app to the latest main commit from https://github.com/cosmorithm/Rove.
 

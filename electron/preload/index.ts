@@ -40,3 +40,8 @@ const studyContextBridge: StudyContextBridge = {
   prepare: request => ipcRenderer.invoke('study-context:prepare', request)
 }
 contextBridge.exposeInMainWorld('studyContextBridge', studyContextBridge)
+
+contextBridge.exposeInMainWorld('roveUpdates', {
+  check: (...args: unknown[]) => ipcRenderer.invoke('updates:check', ...args),
+  openGuide: (...args: unknown[]) => ipcRenderer.invoke('updates:open-guide', ...args),
+})

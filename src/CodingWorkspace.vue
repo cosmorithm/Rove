@@ -465,6 +465,7 @@ function removeNode(card: Card) {
           <div><b>DeepSeek Harness</b><small>{{ engineChecking ? '正在检测…' : engine?.authenticated && engine?.available ? '已配置' : engine?.message || '请安装 dsh 并配置 DeepSeek API Key。' }}</small></div>
           <button type="button" title="重新检测 DeepSeek Harness" aria-label="重新检测 DeepSeek Harness" :disabled="engineChecking" @click="checkEngine">↻</button>
         </div>
+        <slot name="updates" />
       </aside>
     </ResizableSidebar>
     <main class="code-main">

@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
 
 interface Window {
+  roveUpdates: { check(): Promise<boolean>; openGuide(): Promise<void> }
   studyContextBridge: import('./studyContextTypes').StudyContextBridge
   codingBridge: import('./codingTypes').CodingBridge
   studyBridge: {

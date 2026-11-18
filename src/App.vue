@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { provide, ref, watch } from 'vue'
+import { onMounted, provide, ref, watch } from 'vue'
 import ChatWorkspace from './ChatWorkspace.vue'
 import CodingWorkspace from './CodingWorkspace.vue'
 import WorkspaceModeSwitch from './WorkspaceModeSwitch.vue'
@@ -22,6 +22,18 @@ watch(appearance, value => {
 }, { deep: true })
 
 const mode = ref(initialMode())
+const updateAvailable = ref(false)
+const updateLinkFailed = ref(false)
+onMounted(async () => {
+  try { updateAvailable.value = await window.roveUpdates.check() }
+  catch { /* The workspace opens normally if GitHub is unavailable. */ }
+})
+async function openUpdateGuide() {
+  try {
+    await window.roveUpdates.openGuide()
+    updateLinkFailed.value = false
+  } catch { updateLinkFailed.value = true }
+}
 watch(mode, value => {
   try { localStorage.setItem('rove-workspace-mode', value) } catch { /* Mode switching remains available. */ }
 })
@@ -34,6 +46,14 @@ watch(mode, value => {
       <template #appearance>
         <button type="button" class="appearance-launch" @click="appearanceOpen=true"><span aria-hidden="true">◐</span>外观设置</button>
       </template>
+      <template #updates>
+        <div v-if="updateAvailable" class="app-updates" role="status">
+          <button type="button" title="打开 GitHub 上的更新说明" @click="openUpdateGuide">
+            <span class="update-dot" aria-hidden="true"></span>有可用更新<span aria-hidden="true">↗</span>
+          </button>
+          <small v-if="updateLinkFailed">可在 GitHub 的 cosmorithm/Rove 仓库首页查看更新说明。</small>
+        </div>
+      </template>
     </component>
   </KeepAlive>
   <AppearanceDialog v-if="appearanceOpen" v-model="appearance" @close="appearanceOpen=false" />
@@ -41,6 +61,11 @@ watch(mode, value => {
 </template>
 
 <style scoped>
+.app-updates { flex: none; padding-top: 5px; }
+.app-updates button { display: flex; align-items: center; gap: 9px; width: 100%; padding: 8px 10px; border: 0; border-radius: 6px; color: var(--rove-accent-strong); background: var(--rove-accent-soft); font-size: calc(12px * var(--rove-font-scale, 1)); text-align: left; }
+.app-updates button > :last-child { margin-left: auto; }
+.app-updates .update-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.app-updates small { display: block; margin: 5px 8px; color: var(--rove-secondary); }
 .appearance-launch { display: flex; align-items: center; gap: 9px; width: 100%; margin-top: 6px; padding: 9px 8px; border: 0; border-radius: 7px; background: transparent; color: var(--rove-secondary); text-align: left; font: inherit; font-size: calc(12px * var(--rove-font-scale, 1)); }
 .appearance-launch span { width: 17px; text-align: center; font-size: calc(17px * var(--rove-font-scale, 1)); }
 .appearance-launch:hover { background: var(--rove-accent-soft); }

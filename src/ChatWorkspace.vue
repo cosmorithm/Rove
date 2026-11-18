@@ -640,7 +640,11 @@ function removeCard(card: Card) {
             </button>
           </nav>
         </div>
-        <div class="sidebar-bottom"><button class="settings-link" @click="settingsOpen=true">⚙ <span>AI 设置</span><i>{{ ready ? '已配置' : '未配置' }}</i></button><slot name="appearance" /></div>
+        <div class="sidebar-bottom">
+          <button class="settings-link" @click="settingsOpen=true">⚙ <span>AI 设置</span><i>{{ ready ? '已配置' : '未配置' }}</i></button>
+          <slot name="appearance" />
+          <slot name="updates" />
+        </div>
       </aside>
     </ResizableSidebar>
     <main class="main">

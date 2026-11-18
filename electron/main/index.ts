@@ -4,6 +4,8 @@ import { dirname, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { importPdf, pdfScheme, servePdf } from './pdf'
 import { registerCoding } from './coding'
+import { net } from 'electron'
+import { createUpdateCheck, registerUpdateHandlers } from './updateCheck'
 import { registerStudyContext } from './studyContext'
 import { createAIConfigStore } from './aiConfig'
 import { createAIRequest } from './aiTransport'
@@ -50,6 +52,8 @@ function requireReader(event: IpcMainInvokeEvent) {
     throw new Error('只有 Rove 主窗口可以使用这个操作。')
   }
 }
+
+declare const __ROVE_BUILD_COMMIT__: string
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -100,6 +104,9 @@ app.whenReady().then(() => {
       }
     }
   })
+
+  registerUpdateHandlers(ipcMain, requireReader, createUpdateCheck(__ROVE_BUILD_COMMIT__, (url, init) => net.fetch(url, init)),
+    url => shell.openExternal(url))
 
   ipcMain.handle('ai:config', async event => {
     requireReader(event)
