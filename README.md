@@ -17,6 +17,28 @@ Report the application path, checks completed, and any pending GUI or model veri
 
 For manual installation, see [Run locally](#run-locally) and [Build the macOS app](#build-the-macos-app).
 
+## Update with a coding agent
+
+Copy this prompt into your coding agent on the Mac where you use Rove. If you know the path to your checkout or `Rove.app`, include it.
+
+```text
+Update my existing Rove desktop app to the latest main commit from https://github.com/cosmorithm/Rove.
+
+1. Find my Rove.app and its source checkout. Confirm the remote repository, record the current
+   commit and fetch the latest upstream main. If several installations match, ask which I use.
+2. Fast-forward a clean main checkout. If the checkout has local work, is on another branch,
+   or I only have the app, build the fetched commit in a separate worktree or fresh clone.
+   Preserve my source changes, the .env beside my app, my Rove library and my Coding projects.
+3. Follow AGENT_INSTALL.md from the fetched commit. Use its locked dependencies and pinned
+   Electron runtime and run the tests. If packaging in place would replace the app I use,
+   build in a separate directory so I can keep using it until the new bundle passes its checks.
+4. Install the verified bundle at the path I normally open, beside my existing .env.
+   Let any active Rove task finish and any open edits be saved before a normal restart.
+   Verify the Electron window opens from that path and my existing conversations are available.
+5. Report the previous commit if known, the installed commit, the absolute app path, and which
+   tests and launch checks passed. If desktop access is unavailable, say which check is pending.
+```
+
 ## Branching exploration
 
 A linear harness carries one conversation forward. Rove lets you branch from any turn, revisit earlier nodes, and continue along a different path.
