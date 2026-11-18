@@ -55,17 +55,11 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .library-sidebar .sidebar { width: 100%; flex: 1; min-width: 0; }
 .brand { display: flex; align-items: center; gap: 10px; padding: 0 9px 24px; -webkit-app-region: drag; user-select: none; }
 .brand-icon {
-  display: grid;
-  place-items: center;
-  width: 29px;
-  height: 29px;
-  border: 1px solid color-mix(in srgb, var(--rove-surface) 18.8%, transparent);
-  border-radius: 9px;
-  background: var(--rove-accent-strong);
-  color: white;
-  font-size: calc(19px * var(--rove-font-scale, 1));
-  font-weight: 650;
-  box-shadow: 0 2px 4px color-mix(in srgb, var(--rove-text) 6.3%, transparent), inset 0 1px 0 color-mix(in srgb, var(--rove-surface) 12.5%, transparent);
+  display: block;
+  flex: none;
+  width: 36px;
+  height: 36px;
+  object-fit: contain;
 }
 .brand b { color: var(--rove-text); font-size: calc(21px * var(--rove-font-scale, 1)); font-weight: 650; letter-spacing: -.7px; }
 .new-doc {

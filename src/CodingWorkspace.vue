@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import roveIcon from '../resources/rove-icon.png'
 import ResizableSidebar from './ResizableSidebar.vue'
 import ConversationCanvas from './ConversationCanvas.vue'
 import QuestionCard from './QuestionCard.vue'
@@ -437,7 +438,7 @@ function removeNode(card: Card) {
   <div class="app-shell coding-shell">
     <ResizableSidebar side="left" storage-key="rove-code-left" :initial-width="230" :min-width="165" :max-width="345" :reserved-width="600" label="调整项目栏宽度">
       <aside class="sidebar code-library">
-        <div class="brand"><span class="brand-icon" aria-hidden="true">R</span><b>Rove</b></div>
+        <div class="brand"><img class="brand-icon" :src="roveIcon" alt="" aria-hidden="true" :draggable="false" /><b>Rove</b></div>
         <slot name="mode-switch" />
         <button type="button" class="new-doc" data-testid="coding-open" :disabled="mutation || fileSaving" @click="openProject"><span>＋</span> 打开项目</button>
         <template v-if="project">

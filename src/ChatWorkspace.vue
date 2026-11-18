@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, reactive, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import roveIcon from '../resources/rove-icon.png'
 import PdfViewer from './PdfViewer.vue'
 import QuestionCard from './QuestionCard.vue'
 import ConversationCanvas from './ConversationCanvas.vue'
@@ -603,7 +604,7 @@ function removeCard(card: Card) {
   <div class="app-shell">
     <ResizableSidebar side="left" storage-key="folio-library-width" :initial-width="224" :min-width="176" :max-width="340" :reserved-width="660" label="调整资料库宽度" class="library-sidebar">
       <aside class="sidebar">
-        <div class="brand"><span class="brand-icon" aria-hidden="true">R</span><b>Rove</b></div>
+        <div class="brand"><img class="brand-icon" :src="roveIcon" alt="" aria-hidden="true" :draggable="false" /><b>Rove</b></div>
         <slot name="mode-switch" />
         <button type="button" class="new-doc" @click="newChat"><span>＋</span> 新对话</button>
         <button type="button" class="new-doc import-reference" :disabled="importing" @click="openPdf"><span>↥</span> {{ importing ? '正在导入…' : '导入 PDF' }}</button>

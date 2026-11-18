@@ -11,6 +11,7 @@ const displayName = 'Rove'
 const target = join(project, displayName + '.app')
 const bundleID = 'local.zhixu.study'
 const runtime = join(project, 'node_modules/electron/dist')
+const iconSource = join(project, 'resources/rove-icon.png')
 const appPackage = JSON.parse(await readFile(join(project, 'package.json'), 'utf8'))
 const actualVersion = (await readFile(join(runtime, 'version'), 'utf8')).trim().replace(/^v/, '')
 if (actualVersion !== appPackage.devDependencies.electron) {
@@ -19,6 +20,7 @@ if (actualVersion !== appPackage.devDependencies.electron) {
 for (const entry of ['main/index.js', 'preload/index.js', 'renderer/index.html']) {
   await access(join(project, 'out', entry))
 }
+await access(iconSource)
 
 // Only replace a previous build of this app.
 const plistPath = bundle => join(bundle, 'Contents/Info.plist')
@@ -38,10 +40,41 @@ try {
   for (const [key, value] of Object.entries({
     CFBundleIdentifier: bundleID, CFBundleDisplayName: displayName, CFBundleName: displayName,
     CFBundleVersion: appPackage.version, CFBundleShortVersionString: appPackage.version,
+    CFBundleIconFile: 'Rove.icns',
     LSApplicationCategoryType: 'public.app-category.productivity',
   })) {
     execFileSync('/usr/bin/plutil', ['-replace', key, '-string', value, plistPath(bundle)])
   }
+  const iconset = join(stage, 'Rove.iconset')
+  await mkdir(iconset)
+  const iconTypes = {
+    16: ['icp4', 'ic11'],
+    32: ['icp5', 'ic12'],
+    128: ['ic07', 'ic13'],
+    256: ['ic08', 'ic14'],
+    512: ['ic09', 'ic10'],
+  }
+  const iconChunks = []
+  for (const size of [16, 32, 128, 256, 512]) {
+    for (const scale of [1, 2]) {
+      const pixels = String(size * scale)
+      const filename = `icon_${size}x${size}${scale === 2 ? '@2x' : ''}.png`
+      const imagePath = join(iconset, filename)
+      execFileSync('/usr/bin/sips', ['-z', pixels, pixels, iconSource, '--out', imagePath], { stdio: 'ignore' })
+      const png = await readFile(imagePath)
+      const chunk = Buffer.alloc(8 + png.length)
+      chunk.write(iconTypes[size][scale - 1], 0, 4, 'ascii')
+      chunk.writeUInt32BE(chunk.length, 4)
+      png.copy(chunk, 8)
+      iconChunks.push(chunk)
+    }
+  }
+  // ICNS stores a length-prefixed header followed by typed PNG representations.
+  const iconHeader = Buffer.alloc(8)
+  iconHeader.write('icns', 0, 4, 'ascii')
+  iconHeader.writeUInt32BE(8 + iconChunks.reduce((total, chunk) => total + chunk.length, 0), 4)
+  await writeFile(join(resources, 'Rove.icns'), Buffer.concat([iconHeader, ...iconChunks]))
+  await cp(iconSource, join(resources, 'Rove.png'))
   await mkdir(app)
   await cp(join(project, 'out'), join(app, 'out'), { recursive: true })
   await writeFile(join(app, 'package.json'), JSON.stringify({

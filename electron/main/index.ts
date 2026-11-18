@@ -21,6 +21,9 @@ app.setPath('sessionData', libraryDirectory)
 // cannot distinguish this build from a development launch.
 const appRoot = app.getAppPath()
 const loadedFromBundle = dirname(appRoot) === process.resourcesPath
+const brandIconFile = loadedFromBundle
+  ? join(process.resourcesPath, 'Rove.png')
+  : join(appRoot, 'resources/rove-icon.png')
 const envFile = loadedFromBundle
   ? resolve(process.resourcesPath, '../../../.env')
   : join(appRoot, '.env')
@@ -72,6 +75,7 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  if (process.platform === 'darwin') app.dock?.setIcon(brandIconFile)
   const pdfDirectory = join(app.getPath('userData'), 'pdfs')
   protocol.handle(pdfScheme, request => servePdf(request, pdfDirectory, trustedUrl))
   ipcMain.handle('pdf:open', async (event) => {
